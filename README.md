@@ -31,19 +31,23 @@ student-task-api/
 │   │   └── database.py        # Engine, session factory, Base, get_session
 │   ├── models/
 │   │   ├── subject.py         # Subject ORM model (owned by a user)
+│   │   ├── subtask.py         # Subtask ORM model (belongs to a task)
 │   │   ├── task.py            # Task ORM model (owned by a user)
 │   │   └── user.py            # User ORM model
 │   ├── schemas/
 │   │   ├── auth.py            # Token schema
 │   │   ├── subject.py         # Subject request/response schemas
+│   │   ├── subtask.py         # Subtask request/response schemas
 │   │   ├── task.py            # Task request/response schemas
 │   │   └── user.py            # User request/response schemas
 │   ├── routes/
 │   │   ├── auth_routes.py     # Register / login / me endpoints
 │   │   ├── subject_routes.py  # APIRouter with subject endpoints
+│   │   ├── subtask_routes.py  # APIRouter with nested subtask endpoints
 │   │   └── task_routes.py     # APIRouter with task endpoints
 │   ├── services/
 │   │   ├── subject_service.py # Owner-scoped subject operations
+│   │   ├── subtask_service.py # Subtask operations (scoped via parent task)
 │   │   ├── task_service.py    # Owner-scoped task operations
 │   │   └── user_service.py    # User creation + authentication
 │   ├── dependencies.py        # OAuth2 scheme + get_current_user
@@ -58,6 +62,7 @@ student-task-api/
 │   ├── conftest.py            # Shared fixtures (isolated test database)
 │   ├── test_auth.py           # Auth + ownership tests
 │   ├── test_subjects.py       # Subject endpoint tests
+│   ├── test_subtasks.py       # Subtask endpoint tests
 │   └── test_tasks.py          # Task endpoint tests
 ├── docker-compose.yml         # Local PostgreSQL service
 ├── .env.example
@@ -185,6 +190,11 @@ the username to try the protected endpoints interactively.
 | GET    | `/tasks/{task_id}` | Yes    | Get one of your tasks  | -                                    | `200` task / `404`        |
 | PUT    | `/tasks/{task_id}` | Yes    | Update your task       | `{ "title": "string", "completed": bool, "subject_id": int? }` | `200` updated task / `404` |
 | DELETE | `/tasks/{task_id}` | Yes    | Delete your task       | -                                    | `200` message / `404`     |
+| POST   | `/tasks/{task_id}/subtasks` | Yes | Create a subtask  | `{ "title": "string" }`              | `201` created subtask / `404` |
+| GET    | `/tasks/{task_id}/subtasks` | Yes | List a task's subtasks | -                              | `200` array of subtasks / `404` |
+| GET    | `/tasks/{task_id}/subtasks/{id}` | Yes | Get one subtask | -                            | `200` subtask / `404`     |
+| PUT    | `/tasks/{task_id}/subtasks/{id}` | Yes | Update a subtask | `{ "title": "string", "completed": bool }` | `200` updated subtask / `404` |
+| DELETE | `/tasks/{task_id}/subtasks/{id}` | Yes | Delete a subtask | -                            | `200` message / `404`     |
 
 ### Subjects
 
@@ -194,6 +204,15 @@ A task may optionally reference one subject via `subject_id`; assigning a subjec
 that isn't yours returns `404`. Deleting a subject does not delete its tasks - the
 tasks remain and their `subject_id` is set to `null`. List a subject's tasks with
 `GET /tasks?subject_id=<id>`.
+
+### Subtasks
+
+A task can be broken into subtasks (e.g. "Outline", "Draft", "Proofread"), each
+with its own `completed` flag that is toggled independently and never changes the
+parent task's status. Subtasks live under nested routes
+`/tasks/{task_id}/subtasks` and are reached through the parent task, so they
+inherit its ownership (another user's task, or an unknown task, returns `404`).
+Deleting a task also deletes its subtasks.
 
 ### Data Model
 
@@ -214,6 +233,17 @@ A subject is represented as:
 {
   "id": 1,
   "name": "Math"
+}
+```
+
+A subtask is represented as:
+
+```json
+{
+  "id": 1,
+  "title": "Outline",
+  "completed": false,
+  "task_id": 1
 }
 ```
 
@@ -280,9 +310,9 @@ The test suite does not run migrations; it builds the schema directly via
 
 The test suite uses `pytest` with FastAPI's `TestClient`. Tests run against the
 dedicated `student_tasks_test` database, rebuild the schema from the ORM models,
-and truncate the `tasks`, `subjects`, and `users` tables before each test, so they
-are isolated and never touch development data. A helper fixture registers a user and
-attaches a bearer token for the authenticated endpoints.
+and truncate the `subtasks`, `tasks`, `subjects`, and `users` tables before each
+test, so they are isolated and never touch development data. A helper fixture
+registers a user and attaches a bearer token for the authenticated endpoints.
 
 Make sure PostgreSQL is running (`docker compose up -d`), then:
 
@@ -306,6 +336,7 @@ pytest tests/test_tasks.py::test_create_task
 - [x] Introduce SQLAlchemy ORM and migrations
 - [x] User accounts and JWT authentication (owner-scoped tasks)
 - [x] Subjects to group tasks (per-user, optional, filterable)
+- [x] Subtasks under tasks (nested, independently completable)
 - [ ] Containerization and cloud deployment
 
 ## Contributing

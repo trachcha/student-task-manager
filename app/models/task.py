@@ -7,6 +7,7 @@ from app.database.database import Base
 
 if TYPE_CHECKING:
     from app.models.subject import Subject
+    from app.models.subtask import Subtask
     from app.models.user import User
 
 
@@ -25,3 +26,8 @@ class Task(Base):
 
     owner: Mapped["User"] = relationship(back_populates="tasks")
     subject: Mapped["Subject | None"] = relationship(back_populates="tasks")
+    subtasks: Mapped[list["Subtask"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
