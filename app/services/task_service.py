@@ -1,47 +1,86 @@
 from fastapi import HTTPException
+
+from app.database.database import get_connection
 from app.models.task import Task, TaskRequest, TaskUpdate
 
-# temporary in-memory story
-tasks: list[Task] = []
-id_counter = 1
+
+def _row_to_task(row: tuple) -> Task:
+    return Task(id=row[0], title=row[1], completed=bool(row[2]))
 
 
 def create_task(request: TaskRequest) -> Task:
-    global id_counter
+    connection = get_connection()
+    cursor = connection.cursor()
 
-    new_task = Task(
-        id=id_counter,
-        title=request.title
-    )
+    insert_task_sql = "INSERT INTO tasks (title, completed) VALUES (?, ?)"
+    cursor.execute(insert_task_sql, (request.title, False))
 
-    id_counter += 1
+    task_id = cursor.lastrowid
 
-    tasks.append(new_task)
+    connection.commit()
+    connection.close()
 
-    return new_task
+    return Task(id=task_id, title=request.title, completed=False)
 
 
-def get_all_tasks():
-    return tasks
+def get_all_tasks() -> list[Task]:
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT id, title, completed FROM tasks")
+    rows = cursor.fetchall()
+    connection.close()
+
+    return [_row_to_task(row) for row in rows]
 
 
 def find_task_by_id(task_id: int) -> Task:
-    for task in tasks:
-        if task.id == task_id:
-            return task
-    raise HTTPException(status_code=404, detail="Task not found")
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT id, title, completed FROM tasks WHERE id = ?",
+        (task_id,),
+    )
+    row = cursor.fetchone()
+    connection.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return _row_to_task(row)
 
 
-def update_task_by_id(task_id: int, update: TaskUpdate):
-    updated_task = find_task_by_id(task_id)
-    updated_task.title = update.title
-    updated_task.completed = update.completed
+def update_task_by_id(task_id: int, update: TaskUpdate) -> Task:
+    connection = get_connection()
+    cursor = connection.cursor()
 
-    return updated_task
+    cursor.execute(
+        "UPDATE tasks SET title = ?, completed = ? WHERE id = ?",
+        (update.title, update.completed, task_id),
+    )
+
+    if cursor.rowcount == 0:
+        connection.close()
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    connection.commit()
+    connection.close()
+
+    return Task(id=task_id, title=update.title, completed=update.completed)
 
 
-def delete_task_by_id(task_id: int):
-    deleted_task = find_task_by_id(task_id)
-    tasks.remove(deleted_task)
+def delete_task_by_id(task_id: int) -> dict:
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    if cursor.rowcount == 0:
+        connection.close()
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    connection.commit()
+    connection.close()
 
     return {"message": "Task deleted successfully"}

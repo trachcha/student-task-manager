@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+
+from app.database.database import initialize_db
 from app.models.task import TaskRequest, TaskUpdate
 from app.services.task_service import (
     create_task,
@@ -8,6 +10,7 @@ from app.services.task_service import (
     delete_task_by_id
 )
 app = FastAPI()
+initialize_db()
 
 
 @app.get("/")
