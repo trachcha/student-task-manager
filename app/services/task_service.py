@@ -22,6 +22,11 @@ def _validate_subject(session: Session, user_id: int, subject_id: int | None) ->
         raise HTTPException(status_code=404, detail="Subject not found")
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE/ILIKE wildcards so they are matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def create_task(session: Session, user_id: int, request: TaskRequest) -> Task:
     _validate_subject(session, user_id, request.subject_id)
     task = Task(
@@ -37,11 +42,20 @@ def create_task(session: Session, user_id: int, request: TaskRequest) -> Task:
 
 
 def get_all_tasks(
-    session: Session, user_id: int, subject_id: int | None = None
+    session: Session,
+    user_id: int,
+    subject_id: int | None = None,
+    completed: bool | None = None,
+    q: str | None = None,
 ) -> list[Task]:
     query = select(Task).where(Task.user_id == user_id)
     if subject_id is not None:
         query = query.where(Task.subject_id == subject_id)
+    if completed is not None:
+        query = query.where(Task.completed == completed)
+    if q and q.strip():
+        pattern = "%" + _escape_like(q.strip()) + "%"
+        query = query.where(Task.title.ilike(pattern, escape="\\"))
     return list(session.scalars(query.order_by(Task.id)).all())
 
 

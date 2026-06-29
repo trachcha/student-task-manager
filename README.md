@@ -186,7 +186,7 @@ the username to try the protected endpoints interactively.
 | PUT    | `/subjects/{id}`   | Yes    | Rename your subject    | `{ "name": "string" }`               | `200` updated subject / `404` / `409` |
 | DELETE | `/subjects/{id}`   | Yes    | Delete your subject    | -                                    | `200` message / `404`     |
 | POST   | `/tasks`           | Yes    | Create a task          | `{ "title": "string", "subject_id": int? }` | `201` created task / `404` |
-| GET    | `/tasks`           | Yes    | List your tasks (optionally `?subject_id=`) | -               | `200` array of tasks      |
+| GET    | `/tasks`           | Yes    | List your tasks (filter with `?subject_id=`, `?completed=`, `?q=`) | -               | `200` array of tasks      |
 | GET    | `/tasks/{task_id}` | Yes    | Get one of your tasks  | -                                    | `200` task / `404`        |
 | PUT    | `/tasks/{task_id}` | Yes    | Update your task       | `{ "title": "string", "completed": bool, "subject_id": int? }` | `200` updated task / `404` |
 | DELETE | `/tasks/{task_id}` | Yes    | Delete your task       | -                                    | `200` message / `404`     |
@@ -212,6 +212,22 @@ with its own `completed` flag that is toggled independently and never changes th
 parent task's status. Subtasks live under nested routes
 `/tasks/{task_id}/subtasks` and are reached through the parent task, so they
 inherit its ownership (another user's task, or an unknown task, returns `404`).
+
+### Search & filtering
+
+`GET /tasks` accepts three optional query params that combine with AND and are
+always scoped to your tasks:
+
+- `subject_id=<id>` - only tasks assigned to that subject.
+- `completed=true|false` - only completed or only pending tasks (invalid values return `422`).
+- `q=<text>` - case-insensitive substring match on the title (e.g. `q=sql` matches "Study SQL"). A blank/whitespace value is ignored, and `%`/`_` are matched literally.
+
+Example: list pending tasks whose title contains "sql":
+
+```bash
+curl "http://127.0.0.1:8000/tasks?completed=false&q=sql" \
+  -H "Authorization: Bearer $TOKEN"
+```
 Deleting a task also deletes its subtasks.
 
 ### Data Model
@@ -337,6 +353,7 @@ pytest tests/test_tasks.py::test_create_task
 - [x] User accounts and JWT authentication (owner-scoped tasks)
 - [x] Subjects to group tasks (per-user, optional, filterable)
 - [x] Subtasks under tasks (nested, independently completable)
+- [x] Search & filtering on tasks (`completed`, `q`, combinable)
 - [ ] Containerization and cloud deployment
 
 ## Contributing

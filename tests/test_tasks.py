@@ -212,3 +212,87 @@ def test_filter_tasks_by_subject(auth_client):
     assert response.status_code == status.HTTP_200_OK
     titles = [t["title"] for t in response.json()]
     assert titles == ["Algebra"]
+
+
+def _complete(client, task: dict) -> None:
+    client.put(
+        f"/tasks/{task['id']}",
+        json={
+            "title": task["title"],
+            "completed": True,
+            "subject_id": task.get("subject_id"),
+        },
+    )
+
+
+def test_filter_tasks_by_completed(auth_client):
+    done = _create_task(auth_client, "Done")
+    _create_task(auth_client, "Pending")
+    _complete(auth_client, done)
+
+    completed = auth_client.get("/tasks?completed=true")
+    assert [t["title"] for t in completed.json()] == ["Done"]
+
+    pending = auth_client.get("/tasks?completed=false")
+    assert [t["title"] for t in pending.json()] == ["Pending"]
+
+
+def test_search_tasks_case_insensitive_substring(auth_client):
+    _create_task(auth_client, "Study SQL")
+    _create_task(auth_client, "Buy milk")
+
+    response = auth_client.get("/tasks?q=sql")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [t["title"] for t in response.json()] == ["Study SQL"]
+
+
+def test_search_tasks_no_match_returns_empty(auth_client):
+    _create_task(auth_client, "Study SQL")
+
+    response = auth_client.get("/tasks?q=python")
+
+    assert response.json() == []
+
+
+def test_blank_search_is_ignored(auth_client):
+    _create_task(auth_client, "First")
+    _create_task(auth_client, "Second")
+
+    response = auth_client.get("/tasks?q=%20")
+
+    assert [t["title"] for t in response.json()] == ["First", "Second"]
+
+
+def test_combined_filters_are_anded(auth_client):
+    math = auth_client.post("/subjects", json={"name": "Math"}).json()
+    keep = auth_client.post(
+        "/tasks", json={"title": "Study algebra", "subject_id": math["id"]}
+    ).json()
+    # Same subject + matches q, but not completed -> excluded.
+    auth_client.post("/tasks", json={"title": "Study geometry", "subject_id": math["id"]})
+    # Completed + matches q, but different subject -> excluded.
+    other = auth_client.post("/tasks", json={"title": "Study history"}).json()
+    _complete(auth_client, keep)
+    _complete(auth_client, other)
+
+    response = auth_client.get(
+        f"/tasks?completed=true&q=study&subject_id={math['id']}"
+    )
+
+    assert [t["title"] for t in response.json()] == ["Study algebra"]
+
+
+def test_search_treats_wildcards_literally(auth_client):
+    _create_task(auth_client, "50% done")
+    _create_task(auth_client, "50 done")
+
+    response = auth_client.get("/tasks?q=50%25")  # %25 is an encoded '%'
+
+    assert [t["title"] for t in response.json()] == ["50% done"]
+
+
+def test_invalid_completed_value_rejected(auth_client):
+    response = auth_client.get("/tasks?completed=notabool")
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
