@@ -2,7 +2,7 @@
 
 A simple task-management REST API built with FastAPI and PostgreSQL, created to learn backend fundamentals and professional software engineering practices.
 
-The project follows a layered architecture where HTTP routes delegate to a service layer, which is the single point of access to the database.
+The project follows a layered architecture where HTTP routes delegate to a service layer, which is the single point of access to the database. Tasks are owned by authenticated users.
 
 ```
 Routes (task_routes.py) -> Services (task_service.py) -> SQLAlchemy Session -> PostgreSQL
@@ -14,6 +14,7 @@ Routes (task_routes.py) -> Services (task_service.py) -> SQLAlchemy Session -> P
 - FastAPI
 - SQLAlchemy 2.0 (typed ORM) on PostgreSQL via the `postgresql+psycopg://` (psycopg 3) dialect
 - Alembic (database migrations)
+- JWT bearer authentication (PyJWT) with bcrypt password hashing (pwdlib)
 - Docker / Docker Compose (local database)
 - Uvicorn (ASGI server)
 - pytest (automated tests)
@@ -23,16 +24,25 @@ Routes (task_routes.py) -> Services (task_service.py) -> SQLAlchemy Session -> P
 ```
 student-task-api/
 ├── app/
+│   ├── core/
+│   │   ├── config.py          # Settings (JWT secret, token expiry)
+│   │   └── security.py        # Password hashing + JWT helpers
 │   ├── database/
 │   │   └── database.py        # Engine, session factory, Base, get_session
 │   ├── models/
-│   │   └── task.py            # SQLAlchemy ORM models
+│   │   ├── task.py            # Task ORM model (owned by a user)
+│   │   └── user.py            # User ORM model
 │   ├── schemas/
-│   │   └── task.py            # Pydantic request/response schemas
+│   │   ├── auth.py            # Token schema
+│   │   ├── task.py            # Task request/response schemas
+│   │   └── user.py            # User request/response schemas
 │   ├── routes/
+│   │   ├── auth_routes.py     # Register / login / me endpoints
 │   │   └── task_routes.py     # APIRouter with task endpoints
 │   ├── services/
-│   │   └── task_service.py    # Business logic (ORM session operations)
+│   │   ├── task_service.py    # Owner-scoped task operations
+│   │   └── user_service.py    # User creation + authentication
+│   ├── dependencies.py        # OAuth2 scheme + get_current_user
 │   └── main.py                # FastAPI app: wiring and router registration
 ├── alembic/
 │   ├── env.py                 # Migration environment (reads DATABASE_URL)
@@ -42,7 +52,8 @@ student-task-api/
 │   └── init/                  # SQL run on first DB container start
 ├── tests/
 │   ├── conftest.py            # Shared fixtures (isolated test database)
-│   └── test_tasks.py          # API endpoint tests
+│   ├── test_auth.py           # Auth + ownership tests
+│   └── test_tasks.py          # Task endpoint tests
 ├── docker-compose.yml         # Local PostgreSQL service
 ├── .env.example
 ├── pytest.ini
@@ -114,6 +125,9 @@ automatically). See [.env.example](.env.example).
 |---------------------|---------------------------------------------------------------|---------------------------------------------------|
 | `DATABASE_URL`      | `postgresql://postgres:postgres@localhost:5432/student_tasks` | Connection string for the application database.   |
 | `TEST_DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/student_tasks_test` | Connection string used by the test suite.    |
+| `SECRET_KEY`        | `dev-secret-change-me`                                         | Secret used to sign JWTs. Override in every real environment. |
+| `ALGORITHM`         | `HS256`                                                       | JWT signing algorithm.                            |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30`                                               | Access token lifetime in minutes.                 |
 
 ### Interactive Documentation
 
@@ -122,16 +136,45 @@ FastAPI generates interactive API docs automatically:
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - ReDoc: `http://127.0.0.1:8000/redoc`
 
+## Authentication
+
+The API uses JWT bearer authentication. Register an account, log in to obtain an
+access token, and send it as an `Authorization: Bearer <token>` header on every
+task request. All `/tasks` endpoints are private: each user only sees and manages
+their own tasks (requests for another user's task return `404`).
+
+```bash
+# 1. Register
+curl -X POST http://127.0.0.1:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "student@example.com", "password": "password123"}'
+
+# 2. Log in (form-encoded; the OAuth2 "username" field carries the email)
+curl -X POST http://127.0.0.1:8000/auth/login \
+  -d "username=student@example.com&password=password123"
+# -> { "access_token": "<JWT>", "token_type": "bearer" }
+
+# 3. Call a protected endpoint
+curl http://127.0.0.1:8000/tasks \
+  -H "Authorization: Bearer <JWT>"
+```
+
+In Swagger UI (`/docs`) use the **Authorize** button and log in with the email as
+the username to try the protected endpoints interactively.
+
 ## API Endpoints
 
-| Method | Path               | Description            | Request Body                         | Success Response          |
-|--------|--------------------|------------------------|--------------------------------------|---------------------------|
-| GET    | `/`                | Health check           | -                                    | `200` status message      |
-| POST   | `/tasks`           | Create a task          | `{ "title": "string" }`              | `201` created task        |
-| GET    | `/tasks`           | List all tasks         | -                                    | `200` array of tasks      |
-| GET    | `/tasks/{task_id}` | Get a single task      | -                                    | `200` task / `404`        |
-| PUT    | `/tasks/{task_id}` | Update a task          | `{ "title": "string", "completed": bool }` | `200` updated task / `404` |
-| DELETE | `/tasks/{task_id}` | Delete a task          | -                                    | `200` message / `404`     |
+| Method | Path               | Auth   | Description            | Request Body                         | Success Response          |
+|--------|--------------------|--------|------------------------|--------------------------------------|---------------------------|
+| GET    | `/`                | No     | Health check           | -                                    | `200` status message      |
+| POST   | `/auth/register`   | No     | Create an account      | `{ "email": "string", "password": "string" }` | `201` created user / `409` |
+| POST   | `/auth/login`      | No     | Obtain an access token | form: `username` (email), `password` | `200` token / `401`       |
+| GET    | `/auth/me`         | Yes    | Current user           | -                                    | `200` user                |
+| POST   | `/tasks`           | Yes    | Create a task          | `{ "title": "string" }`              | `201` created task        |
+| GET    | `/tasks`           | Yes    | List your tasks        | -                                    | `200` array of tasks      |
+| GET    | `/tasks/{task_id}` | Yes    | Get one of your tasks  | -                                    | `200` task / `404`        |
+| PUT    | `/tasks/{task_id}` | Yes    | Update your task       | `{ "title": "string", "completed": bool }` | `200` updated task / `404` |
+| DELETE | `/tasks/{task_id}` | Yes    | Delete your task       | -                                    | `200` message / `404`     |
 
 ### Data Model
 
@@ -147,22 +190,30 @@ A task is represented as:
 
 ### Example Requests
 
+All task requests require a bearer token (see [Authentication](#authentication)).
+
 ```bash
+TOKEN="<JWT from /auth/login>"
+
 # Create a task
 curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title": "Study SQL"}'
 
-# List all tasks
-curl http://127.0.0.1:8000/tasks
+# List your tasks
+curl http://127.0.0.1:8000/tasks \
+  -H "Authorization: Bearer $TOKEN"
 
 # Update a task
 curl -X PUT http://127.0.0.1:8000/tasks/1 \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title": "Study SQL", "completed": true}'
 
 # Delete a task
-curl -X DELETE http://127.0.0.1:8000/tasks/1
+curl -X DELETE http://127.0.0.1:8000/tasks/1 \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Database Migrations
@@ -193,8 +244,10 @@ The test suite does not run migrations; it builds the schema directly via
 ## Testing
 
 The test suite uses `pytest` with FastAPI's `TestClient`. Tests run against the
-dedicated `student_tasks_test` database and truncate the `tasks` table before each
-test, so they are isolated and never touch development data.
+dedicated `student_tasks_test` database, rebuild the schema from the ORM models,
+and truncate the `tasks` and `users` tables before each test, so they are isolated
+and never touch development data. A helper fixture registers a user and attaches a
+bearer token for the authenticated endpoints.
 
 Make sure PostgreSQL is running (`docker compose up -d`), then:
 
@@ -216,6 +269,7 @@ pytest tests/test_tasks.py::test_create_task
 - [x] Automated test suite with pytest
 - [x] Migrate to PostgreSQL with environment-based configuration
 - [x] Introduce SQLAlchemy ORM and migrations
+- [x] User accounts and JWT authentication (owner-scoped tasks)
 - [ ] Containerization and cloud deployment
 
 ## Contributing
