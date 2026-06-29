@@ -30,16 +30,20 @@ student-task-api/
 │   ├── database/
 │   │   └── database.py        # Engine, session factory, Base, get_session
 │   ├── models/
+│   │   ├── subject.py         # Subject ORM model (owned by a user)
 │   │   ├── task.py            # Task ORM model (owned by a user)
 │   │   └── user.py            # User ORM model
 │   ├── schemas/
 │   │   ├── auth.py            # Token schema
+│   │   ├── subject.py         # Subject request/response schemas
 │   │   ├── task.py            # Task request/response schemas
 │   │   └── user.py            # User request/response schemas
 │   ├── routes/
 │   │   ├── auth_routes.py     # Register / login / me endpoints
+│   │   ├── subject_routes.py  # APIRouter with subject endpoints
 │   │   └── task_routes.py     # APIRouter with task endpoints
 │   ├── services/
+│   │   ├── subject_service.py # Owner-scoped subject operations
 │   │   ├── task_service.py    # Owner-scoped task operations
 │   │   └── user_service.py    # User creation + authentication
 │   ├── dependencies.py        # OAuth2 scheme + get_current_user
@@ -53,6 +57,7 @@ student-task-api/
 ├── tests/
 │   ├── conftest.py            # Shared fixtures (isolated test database)
 │   ├── test_auth.py           # Auth + ownership tests
+│   ├── test_subjects.py       # Subject endpoint tests
 │   └── test_tasks.py          # Task endpoint tests
 ├── docker-compose.yml         # Local PostgreSQL service
 ├── .env.example
@@ -170,11 +175,25 @@ the username to try the protected endpoints interactively.
 | POST   | `/auth/register`   | No     | Create an account      | `{ "email": "string", "password": "string" }` | `201` created user / `409` |
 | POST   | `/auth/login`      | No     | Obtain an access token | form: `username` (email), `password` | `200` token / `401`       |
 | GET    | `/auth/me`         | Yes    | Current user           | -                                    | `200` user                |
-| POST   | `/tasks`           | Yes    | Create a task          | `{ "title": "string" }`              | `201` created task        |
-| GET    | `/tasks`           | Yes    | List your tasks        | -                                    | `200` array of tasks      |
+| POST   | `/subjects`        | Yes    | Create a subject       | `{ "name": "string" }`               | `201` created subject / `409` |
+| GET    | `/subjects`        | Yes    | List your subjects     | -                                    | `200` array of subjects   |
+| GET    | `/subjects/{id}`   | Yes    | Get one of your subjects | -                                  | `200` subject / `404`     |
+| PUT    | `/subjects/{id}`   | Yes    | Rename your subject    | `{ "name": "string" }`               | `200` updated subject / `404` / `409` |
+| DELETE | `/subjects/{id}`   | Yes    | Delete your subject    | -                                    | `200` message / `404`     |
+| POST   | `/tasks`           | Yes    | Create a task          | `{ "title": "string", "subject_id": int? }` | `201` created task / `404` |
+| GET    | `/tasks`           | Yes    | List your tasks (optionally `?subject_id=`) | -               | `200` array of tasks      |
 | GET    | `/tasks/{task_id}` | Yes    | Get one of your tasks  | -                                    | `200` task / `404`        |
-| PUT    | `/tasks/{task_id}` | Yes    | Update your task       | `{ "title": "string", "completed": bool }` | `200` updated task / `404` |
+| PUT    | `/tasks/{task_id}` | Yes    | Update your task       | `{ "title": "string", "completed": bool, "subject_id": int? }` | `200` updated task / `404` |
 | DELETE | `/tasks/{task_id}` | Yes    | Delete your task       | -                                    | `200` message / `404`     |
+
+### Subjects
+
+Subjects let a user group tasks (e.g. "Math", "History"). Each subject belongs to
+the user who created it, and names are unique per user (a duplicate returns `409`).
+A task may optionally reference one subject via `subject_id`; assigning a subject
+that isn't yours returns `404`. Deleting a subject does not delete its tasks - the
+tasks remain and their `subject_id` is set to `null`. List a subject's tasks with
+`GET /tasks?subject_id=<id>`.
 
 ### Data Model
 
@@ -184,7 +203,17 @@ A task is represented as:
 {
   "id": 1,
   "title": "Study SQL",
-  "completed": false
+  "completed": false,
+  "subject_id": null
+}
+```
+
+A subject is represented as:
+
+```json
+{
+  "id": 1,
+  "name": "Math"
 }
 ```
 
@@ -195,14 +224,20 @@ All task requests require a bearer token (see [Authentication](#authentication))
 ```bash
 TOKEN="<JWT from /auth/login>"
 
-# Create a task
+# Create a subject
+curl -X POST http://127.0.0.1:8000/subjects \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Math"}'
+
+# Create a task (optionally grouped under a subject)
 curl -X POST http://127.0.0.1:8000/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title": "Study SQL"}'
+  -d '{"title": "Study SQL", "subject_id": 1}'
 
-# List your tasks
-curl http://127.0.0.1:8000/tasks \
+# List your tasks (optionally filtered by subject)
+curl "http://127.0.0.1:8000/tasks?subject_id=1" \
   -H "Authorization: Bearer $TOKEN"
 
 # Update a task
@@ -245,9 +280,9 @@ The test suite does not run migrations; it builds the schema directly via
 
 The test suite uses `pytest` with FastAPI's `TestClient`. Tests run against the
 dedicated `student_tasks_test` database, rebuild the schema from the ORM models,
-and truncate the `tasks` and `users` tables before each test, so they are isolated
-and never touch development data. A helper fixture registers a user and attaches a
-bearer token for the authenticated endpoints.
+and truncate the `tasks`, `subjects`, and `users` tables before each test, so they
+are isolated and never touch development data. A helper fixture registers a user and
+attaches a bearer token for the authenticated endpoints.
 
 Make sure PostgreSQL is running (`docker compose up -d`), then:
 
@@ -270,6 +305,7 @@ pytest tests/test_tasks.py::test_create_task
 - [x] Migrate to PostgreSQL with environment-based configuration
 - [x] Introduce SQLAlchemy ORM and migrations
 - [x] User accounts and JWT authentication (owner-scoped tasks)
+- [x] Subjects to group tasks (per-user, optional, filterable)
 - [ ] Containerization and cloud deployment
 
 ## Contributing

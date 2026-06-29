@@ -27,10 +27,11 @@ def create(
 
 @router.get("", response_model=list[TaskResponse])
 def read_all(
+    subject_id: int | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> list[TaskResponse]:
-    return get_all_tasks(session, current_user.id)
+    return get_all_tasks(session, current_user.id, subject_id)
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
