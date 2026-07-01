@@ -27,6 +27,16 @@ def _reset_schema(_configure_test_environment) -> None:
     Base.metadata.create_all(engine)
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> None:
+    """Clear in-memory rate-limit counters so auth tests do not interfere."""
+    from app.core.limiter import limiter
+
+    storage = getattr(limiter, "_storage", None)
+    if storage is not None and hasattr(storage, "storage"):
+        storage.storage.clear()
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     """Provide an unauthenticated TestClient backed by a clean test database.

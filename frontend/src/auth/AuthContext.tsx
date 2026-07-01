@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, clearToken, getToken, setToken } from "../api/client";
+import { api, clearToken, getToken, setToken, setUnauthorizedHandler } from "../api/client";
 import type { User } from "../api/types";
 
 interface AuthContextValue {
@@ -23,6 +23,15 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!getToken()) {

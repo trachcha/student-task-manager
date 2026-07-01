@@ -32,6 +32,12 @@ def test_create_task_requires_title(auth_client):
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+def test_create_task_rejects_blank_title(auth_client):
+    response = auth_client.post("/tasks", json={"title": "   "})
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
 def test_get_all_tasks_empty(auth_client):
     response = auth_client.get("/tasks")
 

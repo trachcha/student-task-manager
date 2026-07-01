@@ -51,6 +51,7 @@ export default function RegisterPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            minLength={8}
           />
         </label>
         <button type="submit" disabled={submitting}>

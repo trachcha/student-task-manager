@@ -201,6 +201,7 @@ automatically). See [.env.example](.env.example).
 
 | Variable            | Default                                                       | Description                                       |
 |---------------------|---------------------------------------------------------------|---------------------------------------------------|
+| `APP_ENV`           | `development`                                                 | Set to `production` on deployed environments (disables `/docs`, enforces strong `SECRET_KEY`). |
 | `DATABASE_URL`      | `postgresql://postgres:postgres@localhost:5432/student_tasks` | Connection string for the application database.   |
 | `TEST_DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/student_tasks_test` | Connection string used by the test suite.    |
 | `SECRET_KEY`        | `dev-secret-change-me`                                         | Secret used to sign JWTs. Override in every real environment. |
@@ -210,10 +211,12 @@ automatically). See [.env.example](.env.example).
 
 ### Interactive Documentation
 
-FastAPI generates interactive API docs automatically:
+When `APP_ENV` is not `production`, FastAPI generates interactive API docs:
 
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - ReDoc: `http://127.0.0.1:8000/redoc`
+
+These endpoints are disabled in production.
 
 ## Authentication
 
@@ -418,8 +421,35 @@ pytest tests/test_tasks.py::test_create_task
 
 Every push and pull request to `main` runs the full test suite on GitHub
 Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)). The workflow
-spins up a PostgreSQL 16 service, creates the `student_tasks_test` database, and
-runs `pytest` against it, so regressions are caught before they merge.
+spins up a PostgreSQL 16 service, creates the `student_tasks_test` database,
+runs `pytest`, and audits Python and frontend dependencies for known
+vulnerabilities.
+
+## Security
+
+This project follows a few basic practices to avoid common pitfalls in
+demo-style apps:
+
+- **Secrets** — Never commit `.env`. The repo ships [`.env.example`](.env.example)
+  with placeholders only. In production (`APP_ENV=production`), the API refuses
+  to start if `SECRET_KEY` is still the default dev value. Rotate `SECRET_KEY`
+  immediately if it is ever leaked.
+- **Database** — Docker Compose uses `postgres/postgres` on `localhost:5432` for
+  local development only. Do not expose that port to the public internet.
+- **Authentication** — All task, subject, and subtask routes require a valid JWT.
+  Resources are owner-scoped; accessing another user's id returns `404`.
+- **Browser tokens** — The frontend stores the JWT in `localStorage` for simplicity.
+  That is convenient for a learning SPA but is XSS-sensitive; do not put secrets
+  in frontend bundles (`VITE_*` vars are public).
+- **Production API** — Set `APP_ENV=production` (see [render.yaml](render.yaml)).
+  Swagger UI (`/docs`) is disabled, unhandled errors return a generic message,
+  and schema changes rely on Alembic (not `create_all`). Set `CORS_ORIGINS` to
+  your deployed frontend URL only.
+- **Rate limits** — `/auth/register` and `/auth/login` are limited per IP to
+  reduce brute-force and spam registration.
+- **Dependency audits** — Run `pip-audit -r requirements.txt` and
+  `npm audit --audit-level=high` in `frontend/` locally; CI runs both on every
+  push and pull request.
 
 ## Frontend
 

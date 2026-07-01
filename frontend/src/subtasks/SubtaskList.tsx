@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { Subtask } from "../api/types";
 
 interface SubtaskListProps {
@@ -13,6 +13,7 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
     setSubtasks(await api.listSubtasks(taskId));
@@ -25,6 +26,11 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
       .then((data) => {
         if (active) {
           setSubtasks(data);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err instanceof ApiError ? err.message : "Could not load subtasks");
         }
       })
       .finally(() => {
@@ -50,22 +56,38 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
     if (!title.trim()) {
       return;
     }
-    await api.createSubtask(taskId, title.trim());
-    setTitle("");
-    await refresh();
+    setError(null);
+    try {
+      await api.createSubtask(taskId, title.trim());
+      setTitle("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not add subtask");
+    }
   }
 
   async function handleToggle(subtask: Subtask) {
-    await api.updateSubtask(taskId, subtask.id, {
-      title: subtask.title,
-      completed: !subtask.completed,
-    });
-    await refresh();
+    setError(null);
+    try {
+      await api.updateSubtask(taskId, subtask.id, {
+        title: subtask.title,
+        completed: !subtask.completed,
+      });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update subtask");
+      await refresh();
+    }
   }
 
   async function handleDelete(subtaskId: number) {
-    await api.deleteSubtask(taskId, subtaskId);
-    await refresh();
+    setError(null);
+    try {
+      await api.deleteSubtask(taskId, subtaskId);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete subtask");
+    }
   }
 
   function startEdit(subtask: Subtask) {
@@ -84,12 +106,17 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
       cancelEdit();
       return;
     }
-    await api.updateSubtask(taskId, subtask.id, {
-      title: newTitle,
-      completed: subtask.completed,
-    });
-    cancelEdit();
-    await refresh();
+    setError(null);
+    try {
+      await api.updateSubtask(taskId, subtask.id, {
+        title: newTitle,
+        completed: subtask.completed,
+      });
+      cancelEdit();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not rename subtask");
+    }
   }
 
   if (loading) {
@@ -98,6 +125,7 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
 
   return (
     <div className="subtasks">
+      {error && <p className="error">{error}</p>}
       {subtasks.length === 0 && <p className="subtask-empty">No subtasks yet.</p>}
       <ul>
         {subtasks.map((subtask) => (

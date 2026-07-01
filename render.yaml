@@ -15,8 +15,10 @@ services:
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "30"
+      - key: APP_ENV
+        value: production
       - key: CORS_ORIGINS
-        value: "http://localhost:5173"
+        value: "https://student-task-frontend.onrender.com"
 
   - type: web
     name: student-task-frontend

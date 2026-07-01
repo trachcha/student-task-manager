@@ -5,3 +5,4 @@ dist-ssr
 *.tsbuildinfo
 .env
 .env.*.local
+.env.development

@@ -3,6 +3,8 @@ import type { Subject, Subtask, Task, TaskFilters, Token, User } from "./types";
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "student_task_token";
 
+let unauthorizedHandler: (() => void) | null = null;
+
 export class ApiError extends Error {
   status: number;
 
@@ -11,6 +13,10 @@ export class ApiError extends Error {
     this.status = status;
     this.name = "ApiError";
   }
+}
+
+export function setUnauthorizedHandler(handler: () => void): void {
+  unauthorizedHandler = handler;
 }
 
 export function getToken(): string | null {
@@ -35,6 +41,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
   if (!response.ok) {
+    if (response.status === 401 && token) {
+      clearToken();
+      unauthorizedHandler?.();
+    }
+
     let detail = response.statusText;
     try {
       const body = await response.json();

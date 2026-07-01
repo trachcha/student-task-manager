@@ -1,13 +1,17 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskRequest(BaseModel):
-    title: str
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=200)
     subject_id: int | None = None
 
 
 class TaskUpdate(BaseModel):
-    title: str
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=200)
     completed: bool
     subject_id: int | None = None
 

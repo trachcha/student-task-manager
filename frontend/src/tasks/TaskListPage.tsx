@@ -73,7 +73,6 @@ export default function TaskListPage() {
     try {
       await api.createTask(newTitle.trim(), newSubjectId);
       setNewTitle("");
-      setNewSubjectId(null);
       await loadTasks();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create task");
@@ -103,12 +102,18 @@ export default function TaskListPage() {
   }
 
   async function handleSubjectChange(task: Task, subjectId: number | null) {
-    await api.updateTask(task.id, {
-      title: task.title,
-      completed: task.completed,
-      subject_id: subjectId,
-    });
-    await loadTasks();
+    setError(null);
+    try {
+      await api.updateTask(task.id, {
+        title: task.title,
+        completed: task.completed,
+        subject_id: subjectId,
+      });
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update subject");
+      await loadTasks();
+    }
   }
 
   function startEdit(task: Task) {
@@ -127,19 +132,29 @@ export default function TaskListPage() {
       cancelEdit();
       return;
     }
-    await api.updateTask(task.id, {
-      title,
-      completed: task.completed,
-      subject_id: task.subject_id,
-    });
-    cancelEdit();
-    await loadTasks();
+    setError(null);
+    try {
+      await api.updateTask(task.id, {
+        title,
+        completed: task.completed,
+        subject_id: task.subject_id,
+      });
+      cancelEdit();
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not rename task");
+    }
   }
 
   async function handleDelete(task: Task) {
-    await api.deleteTask(task.id);
-    setConfirmingDeleteTaskId(null);
-    await loadTasks();
+    setError(null);
+    try {
+      await api.deleteTask(task.id);
+      setConfirmingDeleteTaskId(null);
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete task");
+    }
   }
 
   return (

@@ -35,6 +35,31 @@ def test_register_short_username_rejected(client):
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+def test_register_short_password_rejected(client):
+    response = client.post(
+        "/auth/register",
+        json={"username": "validuser", "password": "short"},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_register_rate_limited(client):
+    for i in range(3):
+        response = client.post(
+            "/auth/register",
+            json={"username": f"rate{i}", "password": "password123"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    response = client.post(
+        "/auth/register",
+        json={"username": "rate3", "password": "password123"},
+    )
+
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
 def test_login_success_returns_token(client):
     client.post(
         "/auth/register",
