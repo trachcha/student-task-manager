@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/client";
+import AuthFrame from "./AuthFrame";
 import { useAuth } from "./AuthContext";
 
 export default function LoginPage() {
@@ -30,7 +31,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-page">
+    <AuthFrame>
+      <div className="auth-brand">
+        <h1>Student Task Manager</h1>
+      </div>
       <form className="auth-card" onSubmit={handleSubmit}>
         <h1>Log in</h1>
         {error && <p className="error">{error}</p>}
@@ -59,6 +63,6 @@ export default function LoginPage() {
           No account? <Link to="/register">Register</Link>
         </p>
       </form>
-    </div>
+    </AuthFrame>
   );
 }

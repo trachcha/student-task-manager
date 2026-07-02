@@ -1,10 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type { Subject, Task, TaskFilters } from "../api/types";
+import { useSidebarWidth } from "../hooks/useSidebarWidth";
+import {
+  subjectIdForApi,
+  taskSubjectIdForSelect,
+  UNSORTED_SUBJECT_ID,
+  withUnsortedSubject,
+} from "../subjects/constants";
 import SubjectPanel from "../subjects/SubjectPanel";
 import SubtaskList from "../subtasks/SubtaskList";
 
 type CompletedFilter = "all" | "active" | "completed";
+
+const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
+
+function readSidebarCollapsed() {
+  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+}
 
 export default function TaskListPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -13,7 +26,7 @@ export default function TaskListPage() {
   const [completedFilter, setCompletedFilter] = useState<CompletedFilter>("all");
   const [search, setSearch] = useState("");
   const [newTitle, setNewTitle] = useState("");
-  const [newSubjectId, setNewSubjectId] = useState<number | null>(null);
+  const [newSubjectId, setNewSubjectId] = useState<number | null>(UNSORTED_SUBJECT_ID);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -23,15 +36,20 @@ export default function TaskListPage() {
   const [error, setError] = useState<string | null>(null);
 
   const subjectInputRef = useRef<HTMLInputElement>(null);
-  const hasSubjects = subjects.length > 0;
+  const { width: sidebarWidth, onResizeStart } = useSidebarWidth();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const sidebarSubjects = withUnsortedSubject(subjects);
   const sortedSubjects = [...subjects].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
 
-  const focusSubjectInput = useCallback(() => {
-    subjectInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    subjectInputRef.current?.focus();
-  }, []);
+  function toggleSidebarCollapsed() {
+    setSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      return next;
+    });
+  }
 
   const loadSubjects = useCallback(async () => {
     setSubjects(await api.listSubjects());
@@ -39,7 +57,7 @@ export default function TaskListPage() {
 
   const loadTasks = useCallback(async () => {
     const filters: TaskFilters = {};
-    if (selectedSubjectId !== null) {
+    if (selectedSubjectId !== null && selectedSubjectId !== UNSORTED_SUBJECT_ID) {
       filters.subject_id = selectedSubjectId;
     }
     if (completedFilter !== "all") {
@@ -49,7 +67,11 @@ export default function TaskListPage() {
       filters.q = search.trim();
     }
     try {
-      setTasks(await api.listTasks(filters));
+      let loaded = await api.listTasks(filters);
+      if (selectedSubjectId === UNSORTED_SUBJECT_ID) {
+        loaded = loaded.filter((task) => task.subject_id === null);
+      }
+      setTasks(loaded);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load tasks");
     }
@@ -71,7 +93,7 @@ export default function TaskListPage() {
     }
     setError(null);
     try {
-      await api.createTask(newTitle.trim(), newSubjectId);
+      await api.createTask(newTitle.trim(), subjectIdForApi(newSubjectId));
       setNewTitle("");
       await loadTasks();
     } catch (err) {
@@ -107,7 +129,7 @@ export default function TaskListPage() {
       await api.updateTask(task.id, {
         title: task.title,
         completed: task.completed,
-        subject_id: subjectId,
+        subject_id: subjectIdForApi(subjectId),
       });
       await loadTasks();
     } catch (err) {
@@ -158,9 +180,16 @@ export default function TaskListPage() {
   }
 
   return (
-    <div className="task-layout">
+    <div
+      className={`task-layout${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
+      style={
+        sidebarCollapsed
+          ? undefined
+          : ({ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties)
+      }
+    >
       <SubjectPanel
-        subjects={subjects}
+        subjects={sidebarSubjects}
         selectedSubjectId={selectedSubjectId}
         onSelect={setSelectedSubjectId}
         onChanged={(createdSubjectId) => {
@@ -171,53 +200,60 @@ export default function TaskListPage() {
           }
         }}
         inputRef={subjectInputRef}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapsed}
+      />
+
+      <div
+        className="sidebar-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        onMouseDown={onResizeStart}
       />
 
       <section className="task-content">
-        <form className="task-create" onSubmit={handleCreate}>
-          <input
-            type="text"
-            placeholder="Type your task"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-          />
-          {hasSubjects ? (
+        <div className="task-toolbar">
+          <form className="task-create" onSubmit={handleCreate}>
+            <input
+              type="text"
+              placeholder="Type your task"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+            />
             <select
-              value={newSubjectId ?? ""}
-              onChange={(e) =>
-                setNewSubjectId(e.target.value ? Number(e.target.value) : null)
-              }
+              value={newSubjectId ?? UNSORTED_SUBJECT_ID}
+              onChange={(e) => setNewSubjectId(Number(e.target.value))}
             >
+              <option value="" disabled>
+                Select subject
+              </option>
+              <option value={UNSORTED_SUBJECT_ID}>Unsorted</option>
               {sortedSubjects.map((subject) => (
                 <option key={subject.id} value={subject.id}>
                   {subject.name}
                 </option>
               ))}
-              <option value="">No subject</option>
             </select>
-          ) : (
-            <button type="button" onClick={focusSubjectInput}>
-              Add subject
-            </button>
-          )}
-          <button type="submit">Add task</button>
-        </form>
+            <button type="submit">Add task</button>
+          </form>
 
-        <div className="task-filters">
-          <input
-            type="search"
-            placeholder="Search tasks..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select
-            value={completedFilter}
-            onChange={(e) => setCompletedFilter(e.target.value as CompletedFilter)}
-          >
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="completed">Completed</option>
-          </select>
+          <div className="task-filters">
+            <input
+              type="search"
+              placeholder="Search tasks..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select
+              value={completedFilter}
+              onChange={(e) => setCompletedFilter(e.target.value as CompletedFilter)}
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
         </div>
 
         {error && <p className="error">{error}</p>}
@@ -278,28 +314,22 @@ export default function TaskListPage() {
                     </div>
                   ) : (
                     <div className="task-actions">
-                      {hasSubjects ? (
-                        <select
-                          value={task.subject_id ?? ""}
-                          onChange={(e) =>
-                            handleSubjectChange(
-                              task,
-                              e.target.value ? Number(e.target.value) : null,
-                            )
-                          }
-                        >
-                          {sortedSubjects.map((subject) => (
-                            <option key={subject.id} value={subject.id}>
-                              {subject.name}
-                            </option>
-                          ))}
-                          <option value="">No subject</option>
-                        </select>
-                      ) : (
-                        <button type="button" onClick={focusSubjectInput}>
-                          Add subject
-                        </button>
-                      )}
+                      <select
+                        value={taskSubjectIdForSelect(task.subject_id)}
+                        onChange={(e) =>
+                          handleSubjectChange(task, Number(e.target.value))
+                        }
+                      >
+                        <option value="" disabled>
+                          Select subject
+                        </option>
+                        <option value={UNSORTED_SUBJECT_ID}>Unsorted</option>
+                        {sortedSubjects.map((subject) => (
+                          <option key={subject.id} value={subject.id}>
+                            {subject.name}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         onClick={() =>
