@@ -17,6 +17,7 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str]
     completed: Mapped[bool] = mapped_column(default=False)
+    position: Mapped[int] = mapped_column(default=0)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )

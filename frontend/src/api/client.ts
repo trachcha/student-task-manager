@@ -31,6 +31,14 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+function normalizeApiErrorDetail(detail: string): string {
+  const message = detail.replace(/^Value error,\s*/i, "");
+  if (message.includes("String should have at most 200 characters")) {
+    return "Task titles must be under 200 characters";
+  }
+  return message;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   const token = getToken();
@@ -57,7 +65,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       // Response had no JSON body; fall back to the status text.
     }
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, normalizeApiErrorDetail(detail));
   }
 
   if (response.status === 204) {
@@ -112,14 +120,18 @@ export const api = {
     if (filters.completed !== undefined) {
       params.set("completed", String(filters.completed));
     }
-    if (filters.q) {
-      params.set("q", filters.q);
-    }
     if (filters.subject_id !== undefined) {
       params.set("subject_id", String(filters.subject_id));
     }
     const query = params.toString();
     return request<Task[]>(`/tasks${query ? `?${query}` : ""}`);
+  },
+
+  reorderTasks(completed: boolean, taskIds: number[]): Promise<Task[]> {
+    return jsonRequest<Task[]>("/tasks/reorder", "PUT", {
+      completed,
+      task_ids: taskIds,
+    });
   },
 
   createTask(title: string, subjectId: number | null): Promise<Task> {

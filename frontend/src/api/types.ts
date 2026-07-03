@@ -17,6 +17,7 @@ export interface Task {
   id: number;
   title: string;
   completed: boolean;
+  position: number;
   subject_id: number | null;
 }
 
@@ -29,6 +30,5 @@ export interface Subtask {
 
 export interface TaskFilters {
   completed?: boolean;
-  q?: string;
   subject_id?: number;
 }

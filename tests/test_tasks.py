@@ -38,6 +38,13 @@ def test_create_task_rejects_blank_title(auth_client):
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+def test_create_task_rejects_title_over_200_characters(auth_client):
+    response = auth_client.post("/tasks", json={"title": "a" * 201})
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json()["detail"][0]["msg"] == "Task titles must be under 200 characters"
+
+
 def test_get_all_tasks_empty(auth_client):
     response = auth_client.get("/tasks")
 
@@ -302,3 +309,60 @@ def test_invalid_completed_value_rejected(auth_client):
     response = auth_client.get("/tasks?completed=notabool")
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_create_task_appends_to_end_of_active_list(auth_client):
+    first = _create_task(auth_client, "First")
+    second = _create_task(auth_client, "Second")
+
+    assert first["position"] == 0
+    assert second["position"] == 1
+
+    active = auth_client.get("/tasks?completed=false").json()
+    assert [task["title"] for task in active] == ["First", "Second"]
+
+
+def test_reorder_tasks_persists_active_order(auth_client):
+    first = _create_task(auth_client, "First")
+    second = _create_task(auth_client, "Second")
+    third = _create_task(auth_client, "Third")
+
+    response = auth_client.put(
+        "/tasks/reorder",
+        json={"completed": False, "task_ids": [third["id"], first["id"], second["id"]]},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [task["title"] for task in response.json()] == ["Third", "First", "Second"]
+
+    active = auth_client.get("/tasks?completed=false").json()
+    assert [task["title"] for task in active] == ["Third", "First", "Second"]
+
+
+def test_reorder_rejects_partial_task_list(auth_client):
+    first = _create_task(auth_client, "First")
+    _create_task(auth_client, "Second")
+
+    response = auth_client.put(
+        "/tasks/reorder",
+        json={"completed": False, "task_ids": [first["id"]]},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_completing_task_moves_it_to_end_of_completed_bucket(auth_client):
+    first = _create_task(auth_client, "First")
+    second = _create_task(auth_client, "Second")
+    done = _create_task(auth_client, "Done")
+    _complete(auth_client, done)
+
+    _complete(auth_client, first)
+
+    completed = auth_client.get("/tasks?completed=true").json()
+    assert [task["title"] for task in completed] == ["Done", "First"]
+
+    active = auth_client.get("/tasks?completed=false").json()
+    assert [task["title"] for task in active] == ["Second"]
+    assert completed[0]["position"] == 0
+    assert completed[1]["position"] == 1

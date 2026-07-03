@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type { Subject, Task, TaskFilters } from "../api/types";
+import TaskRowMenu from "../components/TaskRowMenu";
 import { useSidebarWidth } from "../hooks/useSidebarWidth";
 import {
   subjectIdForApi,
@@ -11,7 +12,7 @@ import {
 import SubjectPanel from "../subjects/SubjectPanel";
 import SubtaskList from "../subtasks/SubtaskList";
 
-type CompletedFilter = "all" | "active" | "completed";
+type TaskView = "active" | "completed";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 
@@ -19,21 +20,29 @@ function readSidebarCollapsed() {
   return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
 }
 
+function mergeBucketOrder(bucketIds: number[], visibleIds: number[]): number[] {
+  const visibleSet = new Set(visibleIds);
+  const queue = [...visibleIds];
+  return bucketIds.map((id) => (visibleSet.has(id) ? queue.shift()! : id));
+}
+
 export default function TaskListPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
-  const [completedFilter, setCompletedFilter] = useState<CompletedFilter>("all");
-  const [search, setSearch] = useState("");
+  const [taskView, setTaskView] = useState<TaskView>("active");
   const [newTitle, setNewTitle] = useState("");
-  const [newSubjectId, setNewSubjectId] = useState<number | null>(UNSORTED_SUBJECT_ID);
+  const [newSubjectId, setNewSubjectId] = useState<number | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [confirmingDeleteTaskId, setConfirmingDeleteTaskId] = useState<number | null>(
     null,
   );
+  const [openMenuTaskId, setOpenMenuTaskId] = useState<number | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const subjectInputRef = useRef<HTMLInputElement>(null);
   const { width: sidebarWidth, onResizeStart } = useSidebarWidth();
@@ -42,6 +51,11 @@ export default function TaskListPage() {
   const sortedSubjects = [...subjects].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
+
+  const canDrag =
+    editingTaskId === null &&
+    confirmingDeleteTaskId === null &&
+    openMenuTaskId === null;
 
   function toggleSidebarCollapsed() {
     setSidebarCollapsed((collapsed) => {
@@ -56,15 +70,11 @@ export default function TaskListPage() {
   }, []);
 
   const loadTasks = useCallback(async () => {
-    const filters: TaskFilters = {};
+    const filters: TaskFilters = {
+      completed: taskView === "completed",
+    };
     if (selectedSubjectId !== null && selectedSubjectId !== UNSORTED_SUBJECT_ID) {
       filters.subject_id = selectedSubjectId;
-    }
-    if (completedFilter !== "all") {
-      filters.completed = completedFilter === "completed";
-    }
-    if (search.trim()) {
-      filters.q = search.trim();
     }
     try {
       let loaded = await api.listTasks(filters);
@@ -75,16 +85,39 @@ export default function TaskListPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load tasks");
     }
-  }, [selectedSubjectId, completedFilter, search]);
+  }, [selectedSubjectId, taskView]);
+
+  const persistReorder = useCallback(
+    async (reorderedVisible: Task[]) => {
+      const visibleIds = reorderedVisible.map((task) => task.id);
+      setError(null);
+      try {
+        const bucket = await api.listTasks({ completed: taskView === "completed" });
+        const bucketIds = bucket.map((task) => task.id);
+        const fullOrder = mergeBucketOrder(bucketIds, visibleIds);
+        await api.reorderTasks(taskView === "completed", fullOrder);
+        await loadTasks();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Could not reorder tasks");
+        await loadTasks();
+      }
+    },
+    [loadTasks, taskView],
+  );
 
   useEffect(() => {
     loadSubjects();
   }, [loadSubjects]);
 
   useEffect(() => {
-    const handle = setTimeout(loadTasks, 200);
-    return () => clearTimeout(handle);
+    loadTasks();
   }, [loadTasks]);
+
+  useEffect(() => {
+    setOpenMenuTaskId(null);
+    setEditingTaskId(null);
+    setConfirmingDeleteTaskId(null);
+  }, [taskView, selectedSubjectId]);
 
   async function handleCreate(event: FormEvent) {
     event.preventDefault();
@@ -95,6 +128,7 @@ export default function TaskListPage() {
     try {
       await api.createTask(newTitle.trim(), subjectIdForApi(newSubjectId));
       setNewTitle("");
+      setNewSubjectId(null);
       await loadTasks();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create task");
@@ -103,20 +137,14 @@ export default function TaskListPage() {
 
   async function handleToggle(task: Task) {
     const nextCompleted = !task.completed;
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === task.id ? { ...t, completed: nextCompleted } : t,
-      ),
-    );
+    setError(null);
     try {
       await api.updateTask(task.id, {
         title: task.title,
         completed: nextCompleted,
         subject_id: task.subject_id,
       });
-      if (completedFilter !== "all") {
-        await loadTasks();
-      }
+      await loadTasks();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not update task");
       await loadTasks();
@@ -141,11 +169,14 @@ export default function TaskListPage() {
   function startEdit(task: Task) {
     setEditingTaskId(task.id);
     setEditingTitle(task.title);
+    setEditError(null);
+    setOpenMenuTaskId(null);
   }
 
   function cancelEdit() {
     setEditingTaskId(null);
     setEditingTitle("");
+    setEditError(null);
   }
 
   async function saveEdit(task: Task) {
@@ -154,7 +185,7 @@ export default function TaskListPage() {
       cancelEdit();
       return;
     }
-    setError(null);
+    setEditError(null);
     try {
       await api.updateTask(task.id, {
         title,
@@ -164,7 +195,7 @@ export default function TaskListPage() {
       cancelEdit();
       await loadTasks();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not rename task");
+      setEditError(err instanceof ApiError ? err.message : "Could not rename task");
     }
   }
 
@@ -177,6 +208,45 @@ export default function TaskListPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete task");
     }
+  }
+
+  function handleDragStart(event: React.DragEvent, taskId: number) {
+    if (!canDrag) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(taskId));
+    setDraggingTaskId(taskId);
+  }
+
+  function handleDragOver(event: React.DragEvent) {
+    if (!canDrag || draggingTaskId === null) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleDrop(event: React.DragEvent, targetId: number) {
+    event.preventDefault();
+    const sourceId = draggingTaskId;
+    setDraggingTaskId(null);
+    if (!sourceId || sourceId === targetId) {
+      return;
+    }
+
+    const from = tasks.findIndex((task) => task.id === sourceId);
+    const to = tasks.findIndex((task) => task.id === targetId);
+    if (from < 0 || to < 0) {
+      return;
+    }
+
+    const next = [...tasks];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setTasks(next);
+    void persistReorder(next);
   }
 
   return (
@@ -213,55 +283,75 @@ export default function TaskListPage() {
       />
 
       <section className="task-content">
-        <div className="task-toolbar">
-          <form className="task-create" onSubmit={handleCreate}>
-            <input
-              type="text"
-              placeholder="Type your task"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-            />
-            <select
-              value={newSubjectId ?? UNSORTED_SUBJECT_ID}
-              onChange={(e) => setNewSubjectId(Number(e.target.value))}
-            >
-              <option value="" disabled>
-                Select subject
-              </option>
-              <option value={UNSORTED_SUBJECT_ID}>Unsorted</option>
-              {sortedSubjects.map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.name}
-                </option>
-              ))}
-            </select>
-            <button type="submit">Add task</button>
-          </form>
+        <div
+          className={`task-toolbar${taskView === "completed" ? " task-toolbar--completed" : ""}`}
+        >
+          {taskView === "active" && (
+            <form className="task-create" onSubmit={handleCreate}>
+              <input
+                type="text"
+                placeholder="Type your task"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+              />
+              <select
+                value={newSubjectId ?? ""}
+                onChange={(e) =>
+                  setNewSubjectId(e.target.value ? Number(e.target.value) : null)
+                }
+              >
+                <option value="">Select subject</option>
+                <option value={UNSORTED_SUBJECT_ID}>Unsorted</option>
+                {sortedSubjects.map((subject) => (
+                  <option key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </option>
+                ))}
+              </select>
+              <button type="submit">Add task</button>
+            </form>
+          )}
 
-          <div className="task-filters">
-            <input
-              type="search"
-              placeholder="Search tasks..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select
-              value={completedFilter}
-              onChange={(e) => setCompletedFilter(e.target.value as CompletedFilter)}
+          <div className="task-view-toggle" role="tablist" aria-label="Task view">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={taskView === "active"}
+              className={taskView === "active" ? "active" : ""}
+              onClick={() => setTaskView("active")}
             >
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="completed">Completed</option>
-            </select>
+              Active
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={taskView === "completed"}
+              className={taskView === "completed" ? "active" : ""}
+              onClick={() => setTaskView("completed")}
+            >
+              Completed
+            </button>
           </div>
         </div>
 
         {error && <p className="error">{error}</p>}
 
         <ul className="task-list">
-          {tasks.length === 0 && <li className="task-empty">No tasks found.</li>}
+          {tasks.length === 0 && (
+            <li className="task-empty">
+              {taskView === "active" ? "No active tasks." : "No completed tasks."}
+            </li>
+          )}
           {tasks.map((task) => (
-            <li key={task.id} className="task-item">
+            <li
+              key={task.id}
+              className={`task-item${draggingTaskId === task.id ? " task-item--dragging" : ""}`}
+              onDragOver={handleDragOver}
+              onDrop={(event) => handleDrop(event, task.id)}
+            >
+              {editingTaskId === task.id && editError && (
+                <p className="error task-item-error">{editError}</p>
+              )}
               <div className="task-row">
                 {editingTaskId === task.id ? (
                   <div className="task-main task-edit">
@@ -283,16 +373,29 @@ export default function TaskListPage() {
                     </button>
                   </div>
                 ) : (
-                  <label className="task-main">
-                    <input
-                      type="checkbox"
-                      checked={task.completed}
-                      onChange={() => handleToggle(task)}
-                    />
-                    <span className={task.completed ? "done" : ""}>
-                      {task.title}
-                    </span>
-                  </label>
+                  <>
+                    <button
+                      type="button"
+                      className="task-drag-handle"
+                      draggable={canDrag}
+                      onDragStart={(event) => handleDragStart(event, task.id)}
+                      onDragEnd={() => setDraggingTaskId(null)}
+                      aria-label="Reorder task"
+                      disabled={!canDrag}
+                    >
+                      ≡
+                    </button>
+                    <label className="task-main">
+                      <input
+                        type="checkbox"
+                        checked={task.completed}
+                        onChange={() => handleToggle(task)}
+                      />
+                      <span className={task.completed ? "done" : ""}>
+                        {task.title}
+                      </span>
+                    </label>
+                  </>
                 )}
                 {editingTaskId !== task.id &&
                   (confirmingDeleteTaskId === task.id ? (
@@ -340,16 +443,17 @@ export default function TaskListPage() {
                       >
                         {expandedTaskId === task.id ? "Hide" : "Subtasks"}
                       </button>
-                      <button type="button" onClick={() => startEdit(task)}>
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        onClick={() => setConfirmingDeleteTaskId(task.id)}
-                      >
-                        Delete
-                      </button>
+                      <TaskRowMenu
+                        isOpen={openMenuTaskId === task.id}
+                        onToggle={() =>
+                          setOpenMenuTaskId((current) =>
+                            current === task.id ? null : task.id,
+                          )
+                        }
+                        onClose={() => setOpenMenuTaskId(null)}
+                        onRename={() => startEdit(task)}
+                        onDelete={() => setConfirmingDeleteTaskId(task.id)}
+                      />
                     </div>
                   ))}
               </div>
