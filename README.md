@@ -4,7 +4,7 @@
 
 A simple task-management REST API built with FastAPI and PostgreSQL, created to learn backend fundamentals and professional software engineering practices.
 
-Demo currently deployed on Render: https://student-task-frontend-ftjl.onrender.com/login
+Demo currently deployed on Render: [https://student-task-frontend-ftjl.onrender.com/login](https://student-task-manager-frontend-tyn9.onrender.com)
 
 The project follows a layered architecture where HTTP routes delegate to a service layer, which is the single point of access to the database. Tasks are owned by authenticated users.
 
