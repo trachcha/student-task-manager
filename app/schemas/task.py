@@ -44,6 +44,7 @@ class TaskResponse(BaseModel):
     completed: bool = False
     position: int = 0
     subject_id: int | None = None
+    subtask_count: int = 0
 
 
 class TaskReorderRequest(BaseModel):

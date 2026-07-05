@@ -21,6 +21,7 @@ export interface Task {
   completed: boolean;
   position: number;
   subject_id: number | null;
+  subtask_count: number;
 }
 
 export interface Subtask {

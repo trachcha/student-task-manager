@@ -20,7 +20,11 @@ def _get_owned_subtask(
 def create_subtask(
     session: Session, user_id: int, task_id: int, request: SubtaskCreate
 ) -> Subtask:
-    find_task_by_id(session, user_id, task_id)
+    task = find_task_by_id(session, user_id, task_id)
+    if task.completed:
+        raise HTTPException(
+            status_code=400, detail="Cannot add subtasks to a completed task"
+        )
     subtask = Subtask(title=request.title, completed=False, task_id=task_id)
     session.add(subtask)
     session.commit()

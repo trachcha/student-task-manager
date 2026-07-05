@@ -7,6 +7,8 @@
   --border-strong: rgba(255, 255, 255, 0.6);
   --border-active: #ffffff;
   --surface-active: #f2f2f2;
+  --ring-color: 255, 255, 255;
+  --hover-overlay: rgba(255, 255, 255, 0.04);
 
   --text: #f0f0f0;
   --muted: #888888;
@@ -26,6 +28,21 @@
   --header-height: 2.5rem;
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 2.75rem;
+}
+
+[data-theme="light"] {
+  --bg: #f5f5f5;
+  --surface: #f5f5f5;
+  --surface-raised: #eeeeee;
+
+  --border: rgba(0, 0, 0, 0.25);
+  --border-strong: rgba(0, 0, 0, 0.6);
+  --border-active: #0a0a0a;
+  --surface-active: #1a1a1a;
+  --ring-color: 0, 0, 0;
+  --hover-overlay: rgba(0, 0, 0, 0.04);
+
+  --text: #0a0a0a;
 }
 
 * {
@@ -182,7 +199,7 @@ input[type="checkbox"]:focus-visible {
 }
 
 .auth-ring {
-  border: 1px solid rgba(255, 255, 255, var(--ring-opacity, 0.2));
+  border: 1px solid rgba(var(--ring-color), var(--ring-opacity, 0.2));
 }
 
 .auth-ring--1 {
@@ -337,6 +354,20 @@ input[type="checkbox"]:focus-visible {
   letter-spacing: 0.04em;
 }
 
+.theme-toggle {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.auth-page .theme-toggle {
+  position: fixed;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  z-index: 1;
+}
+
 .app-main {
   flex: 1;
   overflow: hidden;
@@ -364,7 +395,7 @@ input[type="checkbox"]:focus-visible {
 
 .sidebar-resizer:hover,
 body.sidebar-resizing .sidebar-resizer {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--hover-overlay);
 }
 
 body.sidebar-resizing {

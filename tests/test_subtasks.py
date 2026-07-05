@@ -238,3 +238,33 @@ def test_uncompleting_task_leaves_subtasks_completed(auth_client):
     )
 
     assert _subtask_titles_completed(auth_client, task["id"]) == [True]
+
+
+def test_create_subtask_on_completed_task_rejected(auth_client):
+    task = _create_task(auth_client)
+    auth_client.put(
+        f"/tasks/{task['id']}", json={"title": task["title"], "completed": True}
+    )
+
+    response = auth_client.post(
+        f"/tasks/{task['id']}/subtasks", json={"title": "Too late"}
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": "Cannot add subtasks to a completed task"}
+
+
+def test_task_response_includes_subtask_count(auth_client):
+    task = _create_task(auth_client)
+
+    created = auth_client.get(f"/tasks/{task['id']}").json()
+    assert created["subtask_count"] == 0
+
+    _create_subtask(auth_client, task["id"], "First")
+    _create_subtask(auth_client, task["id"], "Second")
+
+    updated = auth_client.get(f"/tasks/{task['id']}").json()
+    assert updated["subtask_count"] == 2
+
+    listed = auth_client.get("/tasks").json()
+    assert listed[0]["subtask_count"] == 2
