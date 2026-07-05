@@ -1,13 +1,13 @@
 services:
   - type: web
-    name: student-task-api
+    name: student-task-manager-api
     runtime: docker
     plan: free
     healthCheckPath: /
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: student-task-db
+          name: student-task-manager-db
           property: connectionString
       - key: SECRET_KEY
         generateValue: true
@@ -20,11 +20,11 @@ services:
       - key: CORS_ORIGINS
         fromService:
           type: web
-          name: student-task-frontend
+          name: student-task-manager-frontend
           envVarKey: RENDER_EXTERNAL_URL
 
   - type: web
-    name: student-task-frontend
+    name: student-task-manager-frontend
     runtime: static
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: frontend/dist
@@ -32,7 +32,7 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: student-task-api
+          name: student-task-manager-api
           envVarKey: RENDER_EXTERNAL_URL
     routes:
       - type: rewrite
@@ -40,6 +40,6 @@ services:
         destination: /index.html
 
 databases:
-  - name: student-task-db
+  - name: student-task-manager-db
     plan: free
-    databaseName: student_tasks
+    databaseName: student_task_manager
