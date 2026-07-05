@@ -4,12 +4,13 @@ from sqlalchemy.orm import Session
 from app.database.database import get_session
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.subject import SubjectCreate, SubjectResponse, SubjectUpdate
+from app.schemas.subject import SubjectCreate, SubjectReorderRequest, SubjectResponse, SubjectUpdate
 from app.services.subject_service import (
     create_subject,
     delete_subject,
     get_all_subjects,
     get_subject_by_id,
+    reorder_subjects,
     update_subject,
 )
 
@@ -31,6 +32,15 @@ def read_all(
     current_user: User = Depends(get_current_user),
 ) -> list[SubjectResponse]:
     return get_all_subjects(session, current_user.id)
+
+
+@router.put("/reorder", response_model=list[SubjectResponse])
+def reorder(
+    request: SubjectReorderRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> list[SubjectResponse]:
+    return reorder_subjects(session, current_user.id, request.subject_ids)
 
 
 @router.get("/{subject_id}", response_model=SubjectResponse)

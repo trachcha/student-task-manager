@@ -103,12 +103,26 @@ export const api = {
     return request<User>("/auth/me");
   },
 
+  updatePreferences(data: { unsorted_label: string }): Promise<User> {
+    return jsonRequest<User>("/auth/me", "PATCH", data);
+  },
+
   listSubjects(): Promise<Subject[]> {
     return request<Subject[]>("/subjects");
   },
 
   createSubject(name: string): Promise<Subject> {
     return jsonRequest<Subject>("/subjects", "POST", { name });
+  },
+
+  updateSubject(id: number, name: string): Promise<Subject> {
+    return jsonRequest<Subject>(`/subjects/${id}`, "PUT", { name });
+  },
+
+  reorderSubjects(subjectIds: number[]): Promise<Subject[]> {
+    return jsonRequest<Subject[]>("/subjects/reorder", "PUT", {
+      subject_ids: subjectIds,
+    });
   },
 
   deleteSubject(id: number): Promise<void> {

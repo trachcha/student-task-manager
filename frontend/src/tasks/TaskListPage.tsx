@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type { Subject, Task, TaskFilters } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
 import TaskRowMenu from "../components/TaskRowMenu";
 import { useSidebarWidth } from "../hooks/useSidebarWidth";
 import {
+  buildSidebarSubjects,
+  DEFAULT_UNSORTED_LABEL,
   subjectIdForApi,
   taskSubjectIdForSelect,
   UNSORTED_SUBJECT_ID,
-  withUnsortedSubject,
 } from "../subjects/constants";
 import SubjectPanel from "../subjects/SubjectPanel";
 import SubtaskList from "../subtasks/SubtaskList";
@@ -15,6 +17,7 @@ import SubtaskList from "../subtasks/SubtaskList";
 type TaskView = "active" | "completed";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
+const COMPLETION_DELAY_MS = 600;
 
 function readSidebarCollapsed() {
   return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
@@ -27,6 +30,7 @@ function mergeBucketOrder(bucketIds: number[], visibleIds: number[]): number[] {
 }
 
 export default function TaskListPage() {
+  const { user, refreshUser } = useAuth();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
@@ -45,9 +49,17 @@ export default function TaskListPage() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const subjectInputRef = useRef<HTMLInputElement>(null);
+  const completionTimeoutsRef = useRef<Map<number, number>>(new Map());
   const { width: sidebarWidth, onResizeStart } = useSidebarWidth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
-  const sidebarSubjects = withUnsortedSubject(subjects);
+  const [localUnsortedPosition, setLocalUnsortedPosition] = useState<number | null>(null);
+  const unsortedLabel = user?.unsorted_label ?? DEFAULT_UNSORTED_LABEL;
+  const unsortedPosition = localUnsortedPosition ?? user?.unsorted_position ?? 0;
+  const sidebarSubjects = buildSidebarSubjects(
+    subjects,
+    unsortedLabel,
+    unsortedPosition,
+  );
   const sortedSubjects = [...subjects].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
@@ -68,6 +80,43 @@ export default function TaskListPage() {
   const loadSubjects = useCallback(async () => {
     setSubjects(await api.listSubjects());
   }, []);
+
+  const persistSubjectReorder = useCallback(
+    async (reorderedSubjects: Subject[]) => {
+      const subjectIds = reorderedSubjects.map((subject) => subject.id);
+      const realSubjects = reorderedSubjects.filter(
+        (subject) => subject.id !== UNSORTED_SUBJECT_ID,
+      );
+      const nextUnsortedPosition = reorderedSubjects.findIndex(
+        (subject) => subject.id === UNSORTED_SUBJECT_ID,
+      );
+      setSubjects(realSubjects);
+      setLocalUnsortedPosition(nextUnsortedPosition);
+      setError(null);
+      try {
+        const updated = await api.reorderSubjects(subjectIds);
+        setSubjects(updated);
+        await refreshUser();
+        setLocalUnsortedPosition(null);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Could not reorder subjects");
+        setLocalUnsortedPosition(null);
+        await loadSubjects();
+        await refreshUser();
+      }
+    },
+    [loadSubjects, refreshUser],
+  );
+
+  async function handleRenameUnsorted(name: string) {
+    await api.updatePreferences({ unsorted_label: name });
+    await refreshUser();
+  }
+
+  async function handleRenameSubject(id: number, name: string) {
+    await api.updateSubject(id, name);
+    await loadSubjects();
+  }
 
   const loadTasks = useCallback(async () => {
     const filters: TaskFilters = {
@@ -119,6 +168,21 @@ export default function TaskListPage() {
     setConfirmingDeleteTaskId(null);
   }, [taskView, selectedSubjectId]);
 
+  useEffect(() => {
+    return () => {
+      completionTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      completionTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  function clearCompletionTimeout(taskId: number) {
+    const existing = completionTimeoutsRef.current.get(taskId);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      completionTimeoutsRef.current.delete(taskId);
+    }
+  }
+
   async function handleCreate(event: FormEvent) {
     event.preventDefault();
     if (!newTitle.trim()) {
@@ -129,7 +193,11 @@ export default function TaskListPage() {
       await api.createTask(newTitle.trim(), subjectIdForApi(newSubjectId));
       setNewTitle("");
       setNewSubjectId(null);
-      await loadTasks();
+      if (taskView !== "active") {
+        setTaskView("active");
+      } else {
+        await loadTasks();
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create task");
     }
@@ -138,6 +206,30 @@ export default function TaskListPage() {
   async function handleToggle(task: Task) {
     const nextCompleted = !task.completed;
     setError(null);
+    clearCompletionTimeout(task.id);
+
+    if (taskView === "active" && nextCompleted) {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, completed: true } : t)),
+      );
+      try {
+        await api.updateTask(task.id, {
+          title: task.title,
+          completed: true,
+          subject_id: task.subject_id,
+        });
+        const timeoutId = window.setTimeout(() => {
+          completionTimeoutsRef.current.delete(task.id);
+          setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        }, COMPLETION_DELAY_MS);
+        completionTimeoutsRef.current.set(task.id, timeoutId);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Could not update task");
+        await loadTasks();
+      }
+      return;
+    }
+
     try {
       await api.updateTask(task.id, {
         title: task.title,
@@ -269,6 +361,9 @@ export default function TaskListPage() {
             setNewSubjectId(createdSubjectId);
           }
         }}
+        onReorder={persistSubjectReorder}
+        onRenameUnsorted={handleRenameUnsorted}
+        onRenameSubject={handleRenameSubject}
         inputRef={subjectInputRef}
         collapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebarCollapsed}
@@ -283,34 +378,30 @@ export default function TaskListPage() {
       />
 
       <section className="task-content">
-        <div
-          className={`task-toolbar${taskView === "completed" ? " task-toolbar--completed" : ""}`}
-        >
-          {taskView === "active" && (
-            <form className="task-create" onSubmit={handleCreate}>
-              <input
-                type="text"
-                placeholder="Type your task"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-              />
-              <select
-                value={newSubjectId ?? ""}
-                onChange={(e) =>
-                  setNewSubjectId(e.target.value ? Number(e.target.value) : null)
-                }
-              >
-                <option value="">Select subject</option>
-                <option value={UNSORTED_SUBJECT_ID}>Unsorted</option>
-                {sortedSubjects.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name}
-                  </option>
-                ))}
-              </select>
-              <button type="submit">Add task</button>
-            </form>
-          )}
+        <div className="task-toolbar">
+          <form className="task-create" onSubmit={handleCreate}>
+            <input
+              type="text"
+              placeholder="Type your task"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+            />
+            <select
+              value={newSubjectId ?? ""}
+              onChange={(e) =>
+                setNewSubjectId(e.target.value ? Number(e.target.value) : null)
+              }
+            >
+              <option value="">Select subject</option>
+              <option value={UNSORTED_SUBJECT_ID}>{unsortedLabel}</option>
+              {sortedSubjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>
+                  {subject.name}
+                </option>
+              ))}
+            </select>
+            <button type="submit">Add task</button>
+          </form>
 
           <div className="task-view-toggle" role="tablist" aria-label="Task view">
             <button
@@ -426,7 +517,7 @@ export default function TaskListPage() {
                         <option value="" disabled>
                           Select subject
                         </option>
-                        <option value={UNSORTED_SUBJECT_ID}>Unsorted</option>
+                        <option value={UNSORTED_SUBJECT_ID}>{unsortedLabel}</option>
                         {sortedSubjects.map((subject) => (
                           <option key={subject.id} value={subject.id}>
                             {subject.name}

@@ -8,8 +8,8 @@ from app.database.database import get_session
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.auth import Token
-from app.schemas.user import UserCreate, UserResponse
-from app.services.user_service import authenticate_user, create_user
+from app.schemas.user import UserCreate, UserPreferencesUpdate, UserResponse
+from app.services.user_service import authenticate_user, create_user, update_user_preferences
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -44,3 +44,12 @@ def login(
 @router.get("/me", response_model=UserResponse)
 def read_me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return current_user
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(
+    request: UserPreferencesUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
+    return update_user_preferences(session, current_user.id, request)

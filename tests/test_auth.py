@@ -108,7 +108,39 @@ def test_me_returns_current_user(client):
     )
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["username"] == "meuser"
+    body = response.json()
+    assert body["username"] == "meuser"
+    assert body["unsorted_label"] == "Unsorted"
+    assert body["unsorted_position"] == 0
+
+
+def test_patch_me_updates_unsorted_label(client):
+    token = register_and_login(client, "prefsuser", "password123")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = client.patch(
+        "/auth/me",
+        json={"unsorted_label": "Inbox"},
+        headers=headers,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["unsorted_label"] == "Inbox"
+
+    me = client.get("/auth/me", headers=headers).json()
+    assert me["unsorted_label"] == "Inbox"
+
+
+def test_patch_me_rejects_empty_label(client):
+    token = register_and_login(client, "emptylabel", "password123")
+
+    response = client.patch(
+        "/auth/me",
+        json={"unsorted_label": "   "},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_me_requires_token(client):

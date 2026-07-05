@@ -464,6 +464,35 @@ body.sidebar-resizing {
   border-bottom: 1px solid var(--border);
 }
 
+.subject-item--dragging {
+  opacity: 0.5;
+}
+
+.subject-drag-handle {
+  flex-shrink: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.subject-drag-handle:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.subject-drag-handle:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.subject-drag-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+
 .subject-list .confirm-delete {
   flex: 1;
   min-width: 0;
@@ -481,7 +510,7 @@ body.sidebar-resizing {
   min-width: 0;
 }
 
-.subject-list li button:first-child {
+.subject-list li .subject-name {
   flex: 1;
   min-width: 0;
   text-align: left;
@@ -494,21 +523,41 @@ body.sidebar-resizing {
   white-space: nowrap;
 }
 
-.subject-list li button:first-child:hover:not(:disabled):not(.active) {
+.subject-list li .subject-name:hover:not(:disabled):not(.active) {
   background: var(--surface-raised);
   border-color: transparent;
 }
 
-.subject-list li button:first-child.active {
+.subject-list li .subject-name.active {
   background: var(--surface-active);
   color: var(--bg);
   font-weight: 500;
   border-color: transparent;
 }
 
-.subject-list li button:first-child.active:hover:not(:disabled) {
+.subject-list li .subject-name.active:hover:not(:disabled) {
   background: var(--surface-active);
   color: var(--bg);
+}
+
+.subject-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.subject-edit input {
+  flex: 1;
+  min-width: 0;
+}
+
+.subject-edit .error {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .subject-form {
@@ -593,10 +642,6 @@ body.sidebar-resizing {
   padding-right: var(--space-lg);
   margin-right: var(--space-lg);
   border-right: 1px solid var(--border-strong);
-}
-
-.task-toolbar--completed {
-  justify-content: flex-end;
 }
 
 .task-view-toggle {
@@ -819,6 +864,11 @@ body.sidebar-resizing {
   background: var(--surface-raised);
 }
 
+.task-menu-dropdown button.danger {
+  color: var(--bg);
+  background: var(--border-active);
+}
+
 .task-menu-dropdown button.danger:hover:not(:disabled) {
   background: var(--error-bg);
   color: var(--error-text);
@@ -987,10 +1037,6 @@ body.sidebar-resizing {
 
   .task-view-toggle {
     align-self: flex-end;
-  }
-
-  .task-toolbar--completed .task-view-toggle {
-    align-self: stretch;
   }
 
   .task-row {

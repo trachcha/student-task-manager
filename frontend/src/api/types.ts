@@ -1,6 +1,8 @@
 export interface User {
   id: number;
   username: string;
+  unsorted_label: string;
+  unsorted_position: number;
 }
 
 export interface Token {

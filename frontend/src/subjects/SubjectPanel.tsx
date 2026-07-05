@@ -8,6 +8,9 @@ interface SubjectPanelProps {
   selectedSubjectId: number | null;
   onSelect: (subjectId: number | null) => void;
   onChanged: (createdSubjectId?: number) => void;
+  onReorder: (reorderedSubjects: Subject[]) => Promise<void>;
+  onRenameUnsorted: (name: string) => Promise<void>;
+  onRenameSubject: (id: number, name: string) => Promise<void>;
   inputRef?: RefObject<HTMLInputElement>;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -18,6 +21,9 @@ export default function SubjectPanel({
   selectedSubjectId,
   onSelect,
   onChanged,
+  onReorder,
+  onRenameUnsorted,
+  onRenameSubject,
   inputRef,
   collapsed,
   onToggleCollapse,
@@ -25,6 +31,13 @@ export default function SubjectPanel({
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [draggingSubjectId, setDraggingSubjectId] = useState<number | null>(null);
+
+  const canDrag =
+    editingId === null && confirmingDeleteId === null;
 
   async function handleAdd(event: FormEvent) {
     event.preventDefault();
@@ -50,6 +63,76 @@ export default function SubjectPanel({
     onChanged();
   }
 
+  function startEdit(subject: Subject) {
+    setEditingId(subject.id);
+    setEditingName(subject.name);
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingName("");
+    setEditError(null);
+  }
+
+  async function saveEdit(subject: Subject) {
+    const trimmed = editingName.trim();
+    if (!trimmed || trimmed === subject.name) {
+      cancelEdit();
+      return;
+    }
+    setEditError(null);
+    try {
+      if (subject.id === UNSORTED_SUBJECT_ID) {
+        await onRenameUnsorted(trimmed);
+      } else {
+        await onRenameSubject(subject.id, trimmed);
+      }
+      cancelEdit();
+      onChanged();
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "Could not rename subject");
+    }
+  }
+
+  function handleDragStart(event: React.DragEvent, subjectId: number) {
+    if (!canDrag) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(subjectId));
+    setDraggingSubjectId(subjectId);
+  }
+
+  function handleDragOver(event: React.DragEvent) {
+    if (!canDrag || draggingSubjectId === null) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleDrop(event: React.DragEvent, targetId: number) {
+    event.preventDefault();
+    const sourceId = draggingSubjectId;
+    setDraggingSubjectId(null);
+    if (!sourceId || sourceId === targetId) {
+      return;
+    }
+
+    const from = subjects.findIndex((subject) => subject.id === sourceId);
+    const to = subjects.findIndex((subject) => subject.id === targetId);
+    if (from < 0 || to < 0) {
+      return;
+    }
+
+    const next = [...subjects];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    void onReorder(next);
+  }
+
   return (
     <aside className={`subject-panel${collapsed ? " subject-panel--collapsed" : ""}`}>
       <div className="subject-panel-header">
@@ -72,22 +155,47 @@ export default function SubjectPanel({
             <li>
               <button
                 type="button"
-                className={selectedSubjectId === null ? "active" : ""}
+                className={`subject-name${selectedSubjectId === null ? " active" : ""}`}
                 onClick={() => onSelect(null)}
               >
                 All tasks
               </button>
             </li>
             {subjects.map((subject) => (
-              <li key={subject.id}>
-                {confirmingDeleteId === subject.id ? (
+              <li
+                key={subject.id}
+                className={`subject-item${draggingSubjectId === subject.id ? " subject-item--dragging" : ""}`}
+                onDragOver={handleDragOver}
+                onDrop={(event) => handleDrop(event, subject.id)}
+              >
+                {editingId === subject.id ? (
+                  <div className="subject-edit">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void saveEdit(subject);
+                        if (e.key === "Escape") cancelEdit();
+                      }}
+                    />
+                    <button type="button" onClick={() => void saveEdit(subject)}>
+                      Save
+                    </button>
+                    <button type="button" onClick={cancelEdit}>
+                      Cancel
+                    </button>
+                    {editError && <p className="error">{editError}</p>}
+                  </div>
+                ) : confirmingDeleteId === subject.id ? (
                   <div className="confirm-delete">
                     <span className="confirm-label">Delete "{subject.name}"?</span>
                     <button
                       type="button"
                       className="icon-button danger"
                       title="Confirm delete"
-                      onClick={() => handleDelete(subject)}
+                      onClick={() => void handleDelete(subject)}
                     >
                       ✓
                     </button>
@@ -104,8 +212,21 @@ export default function SubjectPanel({
                   <>
                     <button
                       type="button"
-                      className={selectedSubjectId === subject.id ? "active" : ""}
+                      className="subject-drag-handle"
+                      draggable={canDrag}
+                      onDragStart={(event) => handleDragStart(event, subject.id)}
+                      onDragEnd={() => setDraggingSubjectId(null)}
+                      aria-label="Reorder subject"
+                      disabled={!canDrag}
+                    >
+                      ≡
+                    </button>
+                    <button
+                      type="button"
+                      className={`subject-name${selectedSubjectId === subject.id ? " active" : ""}`}
                       onClick={() => onSelect(subject.id)}
+                      onDoubleClick={() => startEdit(subject)}
+                      title="Double-click to rename"
                     >
                       {subject.name}
                     </button>

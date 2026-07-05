@@ -13,3 +13,11 @@ class UserResponse(BaseModel):
 
     id: int
     username: str
+    unsorted_label: str
+    unsorted_position: int
+
+
+class UserPreferencesUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    unsorted_label: str = Field(min_length=1, max_length=200)

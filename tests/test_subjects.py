@@ -167,3 +167,55 @@ def test_deleting_subject_unassigns_tasks(auth_client):
     refreshed = auth_client.get(f"/tasks/{task['id']}")
     assert refreshed.status_code == status.HTTP_200_OK
     assert refreshed.json()["subject_id"] is None
+
+
+def test_reorder_subjects_persists_order(auth_client):
+    math = auth_client.post("/subjects", json={"name": "Math"}).json()
+    history = auth_client.post("/subjects", json={"name": "History"}).json()
+
+    response = auth_client.put(
+        "/subjects/reorder",
+        json={"subject_ids": [history["id"], 0, math["id"]]},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    names = [s["name"] for s in response.json()]
+    assert names == ["History", "Math"]
+
+    me = auth_client.get("/auth/me").json()
+    assert me["unsorted_position"] == 1
+
+
+def test_reorder_subjects_rejects_invalid_order(auth_client):
+    math = auth_client.post("/subjects", json={"name": "Math"}).json()
+    auth_client.post("/subjects", json={"name": "History"})
+
+    response = auth_client.put(
+        "/subjects/reorder",
+        json={"subject_ids": [math["id"], 0]},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": "Invalid subject order"}
+
+
+def test_reorder_subjects_requires_unsorted_once(auth_client):
+    math = auth_client.post("/subjects", json={"name": "Math"}).json()
+
+    response = auth_client.put(
+        "/subjects/reorder",
+        json={"subject_ids": [math["id"]]},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_new_subject_appends_at_end(auth_client):
+    math = auth_client.post("/subjects", json={"name": "Math"}).json()
+    auth_client.put("/subjects/reorder", json={"subject_ids": [0, math["id"]]})
+
+    history = auth_client.post("/subjects", json={"name": "History"}).json()
+
+    names = [s["name"] for s in auth_client.get("/subjects").json()]
+    assert names == ["Math", "History"]
+    assert history["id"] > math["id"]

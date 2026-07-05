@@ -18,3 +18,7 @@ class SubjectResponse(BaseModel):
 
     id: int
     name: str
+
+
+class SubjectReorderRequest(BaseModel):
+    subject_ids: list[int] = Field(min_length=1)
