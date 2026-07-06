@@ -32,3 +32,7 @@ class Task(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+
+    @property
+    def subtask_count(self) -> int:
+        return len(self.subtasks)

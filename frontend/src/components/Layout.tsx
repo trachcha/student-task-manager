@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -10,6 +11,7 @@ export default function Layout() {
         <h1>Student Task Manager</h1>
         <div className="app-header-user">
           <span>{user?.username}</span>
+          <ThemeToggle />
           <button type="button" onClick={logout}>
             Log out
           </button>

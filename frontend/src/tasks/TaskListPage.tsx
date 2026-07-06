@@ -302,6 +302,18 @@ export default function TaskListPage() {
     }
   }
 
+  function handleSubtaskCountChange(taskId: number, count: number) {
+    setTasks((prev) => {
+      const task = prev.find((entry) => entry.id === taskId);
+      if (task?.completed && count === 0) {
+        setExpandedTaskId((current) => (current === taskId ? null : current));
+      }
+      return prev.map((entry) =>
+        entry.id === taskId ? { ...entry, subtask_count: count } : entry,
+      );
+    });
+  }
+
   function handleDragStart(event: React.DragEvent, taskId: number) {
     if (!canDrag) {
       event.preventDefault();
@@ -433,7 +445,10 @@ export default function TaskListPage() {
               {taskView === "active" ? "No active tasks." : "No completed tasks."}
             </li>
           )}
-          {tasks.map((task) => (
+          {tasks.map((task) => {
+            const showSubtasks = !task.completed || task.subtask_count > 0;
+
+            return (
             <li
               key={task.id}
               className={`task-item${draggingTaskId === task.id ? " task-item--dragging" : ""}`}
@@ -524,16 +539,18 @@ export default function TaskListPage() {
                           </option>
                         ))}
                       </select>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedTaskId(
-                            expandedTaskId === task.id ? null : task.id,
-                          )
-                        }
-                      >
-                        {expandedTaskId === task.id ? "Hide" : "Subtasks"}
-                      </button>
+                      {showSubtasks && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedTaskId(
+                              expandedTaskId === task.id ? null : task.id,
+                            )
+                          }
+                        >
+                          {expandedTaskId === task.id ? "Hide" : "Subtasks"}
+                        </button>
+                      )}
                       <TaskRowMenu
                         isOpen={openMenuTaskId === task.id}
                         onToggle={() =>
@@ -548,11 +565,16 @@ export default function TaskListPage() {
                     </div>
                   ))}
               </div>
-              {expandedTaskId === task.id && (
-                <SubtaskList taskId={task.id} parentCompleted={task.completed} />
+              {showSubtasks && expandedTaskId === task.id && (
+                <SubtaskList
+                  taskId={task.id}
+                  parentCompleted={task.completed}
+                  onCountChange={(count) => handleSubtaskCountChange(task.id, count)}
+                />
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       </section>
     </div>

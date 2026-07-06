@@ -5,9 +5,14 @@ import type { Subtask } from "../api/types";
 interface SubtaskListProps {
   taskId: number;
   parentCompleted: boolean;
+  onCountChange?: (count: number) => void;
 }
 
-export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProps) {
+export default function SubtaskList({
+  taskId,
+  parentCompleted,
+  onCountChange,
+}: SubtaskListProps) {
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(true);
@@ -15,8 +20,14 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
   const [editingTitle, setEditingTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  function notifyCountChange(nextSubtasks: Subtask[]) {
+    onCountChange?.(nextSubtasks.length);
+  }
+
   async function refresh() {
-    setSubtasks(await api.listSubtasks(taskId));
+    const nextSubtasks = await api.listSubtasks(taskId);
+    setSubtasks(nextSubtasks);
+    notifyCountChange(nextSubtasks);
   }
 
   useEffect(() => {
@@ -26,6 +37,7 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
       .then((data) => {
         if (active) {
           setSubtasks(data);
+          notifyCountChange(data);
         }
       })
       .catch((err) => {
@@ -126,7 +138,9 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
   return (
     <div className="subtasks">
       {error && <p className="error">{error}</p>}
-      {subtasks.length === 0 && <p className="subtask-empty">No subtasks yet.</p>}
+      {subtasks.length === 0 && !parentCompleted && (
+        <p className="subtask-empty">No subtasks yet.</p>
+      )}
       <ul>
         {subtasks.map((subtask) => (
           <li key={subtask.id}>
@@ -178,15 +192,17 @@ export default function SubtaskList({ taskId, parentCompleted }: SubtaskListProp
           </li>
         ))}
       </ul>
-      <form className="subtask-form" onSubmit={handleAdd}>
-        <input
-          type="text"
-          placeholder="Add a subtask"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <button type="submit">Add</button>
-      </form>
+      {!parentCompleted && (
+        <form className="subtask-form" onSubmit={handleAdd}>
+          <input
+            type="text"
+            placeholder="Add a subtask"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <button type="submit">Add</button>
+        </form>
+      )}
     </div>
   );
 }

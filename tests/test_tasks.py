@@ -24,6 +24,7 @@ def test_create_task(auth_client):
     assert body["id"] == 1
     assert body["title"] == "Study SQL"
     assert body["completed"] is False
+    assert body["subtask_count"] == 0
 
 
 def test_create_task_requires_title(auth_client):

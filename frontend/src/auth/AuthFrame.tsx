@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import ThemeToggle from "../components/ThemeToggle";
 
 interface AuthFrameProps {
   children: ReactNode;
@@ -7,6 +8,7 @@ interface AuthFrameProps {
 export default function AuthFrame({ children }: AuthFrameProps) {
   return (
     <div className="auth-page">
+      <ThemeToggle />
       <div className="auth-rings">
         <div className="auth-ring auth-ring--4">
           <div className="auth-ring auth-ring--3">

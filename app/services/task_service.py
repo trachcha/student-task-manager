@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.subject import Subject
 from app.models.task import Task
@@ -49,7 +49,7 @@ def create_task(session: Session, user_id: int, request: TaskRequest) -> Task:
     session.add(task)
     session.commit()
     session.refresh(task)
-    return task
+    return find_task_by_id(session, user_id, task.id)
 
 
 def get_all_tasks(
@@ -67,11 +67,19 @@ def get_all_tasks(
     if q and q.strip():
         pattern = "%" + _escape_like(q.strip()) + "%"
         query = query.where(Task.title.ilike(pattern, escape="\\"))
-    return list(session.scalars(query.order_by(Task.position, Task.id)).all())
+    query = query.options(selectinload(Task.subtasks)).order_by(Task.position, Task.id)
+    return list(session.scalars(query).all())
 
 
 def find_task_by_id(session: Session, user_id: int, task_id: int) -> Task:
-    return _get_owned_task(session, task_id, user_id)
+    task = session.scalar(
+        select(Task)
+        .options(selectinload(Task.subtasks))
+        .where(Task.id == task_id, Task.user_id == user_id)
+    )
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 def update_task_by_id(
@@ -89,8 +97,7 @@ def update_task_by_id(
         for subtask in task.subtasks:
             subtask.completed = True
     session.commit()
-    session.refresh(task)
-    return task
+    return find_task_by_id(session, user_id, task_id)
 
 
 def reorder_tasks(
