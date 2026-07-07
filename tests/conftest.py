@@ -42,9 +42,8 @@ def client() -> Iterator[TestClient]:
     """Provide an unauthenticated TestClient backed by a clean test database.
 
     Entering the TestClient context runs the app's lifespan handler, which creates
-    the schema via ``Base.metadata.create_all``. The ``subtasks``, ``tasks``,
-    ``subjects``, and ``users`` tables are then truncated so each test starts empty
-    with ids reset to 1.
+    the schema via ``Base.metadata.create_all``. The ``tasks``, ``subjects``, and
+    ``users`` tables are then truncated so each test starts empty with ids reset to 1.
     """
     from sqlalchemy import text
 
@@ -55,7 +54,7 @@ def client() -> Iterator[TestClient]:
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "TRUNCATE subtasks, tasks, subjects, users "
+                    "TRUNCATE tasks, subjects, users "
                     "RESTART IDENTITY CASCADE"
                 )
             )

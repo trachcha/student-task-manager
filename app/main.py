@@ -12,7 +12,6 @@ from app.core.limiter import limiter
 from app.database.database import initialize_db
 from app.routes.auth_routes import router as auth_router
 from app.routes.subject_routes import router as subject_router
-from app.routes.subtask_routes import router as subtask_router
 from app.routes.task_routes import router as task_router
 
 
@@ -71,7 +70,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(auth_router)
 app.include_router(subject_router)
 app.include_router(task_router)
-app.include_router(subtask_router)
 
 
 @app.get("/", tags=["health"])

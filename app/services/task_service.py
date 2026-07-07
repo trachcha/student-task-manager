@@ -1,6 +1,6 @@
 from fastapi import HTTPException
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
 from app.models.subject import Subject
 from app.models.task import Task
@@ -41,6 +41,9 @@ def create_task(session: Session, user_id: int, request: TaskRequest) -> Task:
     _validate_subject(session, user_id, request.subject_id)
     task = Task(
         title=request.title,
+        description=request.description,
+        priority=request.priority,
+        due_date=request.due_date,
         completed=False,
         position=_next_position(session, user_id, False),
         user_id=user_id,
@@ -66,16 +69,19 @@ def get_all_tasks(
         query = query.where(Task.completed == completed)
     if q and q.strip():
         pattern = "%" + _escape_like(q.strip()) + "%"
-        query = query.where(Task.title.ilike(pattern, escape="\\"))
-    query = query.options(selectinload(Task.subtasks)).order_by(Task.position, Task.id)
+        query = query.where(
+            or_(
+                Task.title.ilike(pattern, escape="\\"),
+                Task.description.ilike(pattern, escape="\\"),
+            )
+        )
+    query = query.order_by(Task.position, Task.id)
     return list(session.scalars(query).all())
 
 
 def find_task_by_id(session: Session, user_id: int, task_id: int) -> Task:
     task = session.scalar(
-        select(Task)
-        .options(selectinload(Task.subtasks))
-        .where(Task.id == task_id, Task.user_id == user_id)
+        select(Task).where(Task.id == task_id, Task.user_id == user_id)
     )
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -89,13 +95,13 @@ def update_task_by_id(
     _validate_subject(session, user_id, update.subject_id)
     was_completed = task.completed
     task.title = update.title
+    task.description = update.description
+    task.priority = update.priority
+    task.due_date = update.due_date
     task.completed = update.completed
     task.subject_id = update.subject_id
     if was_completed != update.completed:
         task.position = _next_position(session, user_id, update.completed)
-    if update.completed:
-        for subtask in task.subtasks:
-            subtask.completed = True
     session.commit()
     return find_task_by_id(session, user_id, task_id)
 

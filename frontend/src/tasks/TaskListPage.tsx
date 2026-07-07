@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
-import type { Subject, Task, TaskFilters } from "../api/types";
+import type { Subject, Task, TaskFilters, TaskPriority } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import TaskRowMenu from "../components/TaskRowMenu";
 import { useSidebarWidth } from "../hooks/useSidebarWidth";
@@ -12,7 +12,13 @@ import {
   UNSORTED_SUBJECT_ID,
 } from "../subjects/constants";
 import SubjectPanel from "../subjects/SubjectPanel";
-import SubtaskList from "../subtasks/SubtaskList";
+import TaskDetail from "./TaskDetail";
+import {
+  formatDueDate,
+  isTaskOverdue,
+  priorityLabel,
+  taskToUpdateInput,
+} from "./taskUtils";
 
 type TaskView = "active" | "completed";
 
@@ -37,6 +43,8 @@ export default function TaskListPage() {
   const [taskView, setTaskView] = useState<TaskView>("active");
   const [newTitle, setNewTitle] = useState("");
   const [newSubjectId, setNewSubjectId] = useState<number | null>(null);
+  const [newPriority, setNewPriority] = useState<TaskPriority>("medium");
+  const [newDueDate, setNewDueDate] = useState("");
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -190,9 +198,16 @@ export default function TaskListPage() {
     }
     setError(null);
     try {
-      await api.createTask(newTitle.trim(), subjectIdForApi(newSubjectId));
+      await api.createTask({
+        title: newTitle.trim(),
+        subject_id: subjectIdForApi(newSubjectId),
+        priority: newPriority,
+        due_date: newDueDate || null,
+      });
       setNewTitle("");
       setNewSubjectId(null);
+      setNewPriority("medium");
+      setNewDueDate("");
       if (taskView !== "active") {
         setTaskView("active");
       } else {
@@ -214,9 +229,8 @@ export default function TaskListPage() {
       );
       try {
         await api.updateTask(task.id, {
-          title: task.title,
+          ...taskToUpdateInput(task),
           completed: true,
-          subject_id: task.subject_id,
         });
         const timeoutId = window.setTimeout(() => {
           completionTimeoutsRef.current.delete(task.id);
@@ -232,9 +246,8 @@ export default function TaskListPage() {
 
     try {
       await api.updateTask(task.id, {
-        title: task.title,
+        ...taskToUpdateInput(task),
         completed: nextCompleted,
-        subject_id: task.subject_id,
       });
       await loadTasks();
     } catch (err) {
@@ -247,8 +260,7 @@ export default function TaskListPage() {
     setError(null);
     try {
       await api.updateTask(task.id, {
-        title: task.title,
-        completed: task.completed,
+        ...taskToUpdateInput(task),
         subject_id: subjectIdForApi(subjectId),
       });
       await loadTasks();
@@ -256,6 +268,12 @@ export default function TaskListPage() {
       setError(err instanceof ApiError ? err.message : "Could not update subject");
       await loadTasks();
     }
+  }
+
+  async function handleSaveDetails(task: Task, data: ReturnType<typeof taskToUpdateInput>) {
+    setError(null);
+    await api.updateTask(task.id, data);
+    await loadTasks();
   }
 
   function startEdit(task: Task) {
@@ -280,9 +298,8 @@ export default function TaskListPage() {
     setEditError(null);
     try {
       await api.updateTask(task.id, {
+        ...taskToUpdateInput(task),
         title,
-        completed: task.completed,
-        subject_id: task.subject_id,
       });
       cancelEdit();
       await loadTasks();
@@ -300,18 +317,6 @@ export default function TaskListPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete task");
     }
-  }
-
-  function handleSubtaskCountChange(taskId: number, count: number) {
-    setTasks((prev) => {
-      const task = prev.find((entry) => entry.id === taskId);
-      if (task?.completed && count === 0) {
-        setExpandedTaskId((current) => (current === taskId ? null : current));
-      }
-      return prev.map((entry) =>
-        entry.id === taskId ? { ...entry, subtask_count: count } : entry,
-      );
-    });
   }
 
   function handleDragStart(event: React.DragEvent, taskId: number) {
@@ -412,6 +417,21 @@ export default function TaskListPage() {
                 </option>
               ))}
             </select>
+            <select
+              value={newPriority}
+              onChange={(e) => setNewPriority(e.target.value as TaskPriority)}
+              aria-label="Priority"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <input
+              type="date"
+              value={newDueDate}
+              onChange={(e) => setNewDueDate(e.target.value)}
+              aria-label="Due date"
+            />
             <button type="submit">Add task</button>
           </form>
 
@@ -445,10 +465,7 @@ export default function TaskListPage() {
               {taskView === "active" ? "No active tasks." : "No completed tasks."}
             </li>
           )}
-          {tasks.map((task) => {
-            const showSubtasks = !task.completed || task.subtask_count > 0;
-
-            return (
+          {tasks.map((task) => (
             <li
               key={task.id}
               className={`task-item${draggingTaskId === task.id ? " task-item--dragging" : ""}`}
@@ -497,9 +514,25 @@ export default function TaskListPage() {
                         checked={task.completed}
                         onChange={() => handleToggle(task)}
                       />
-                      <span className={task.completed ? "done" : ""}>
-                        {task.title}
-                      </span>
+                      <div className="task-title-block">
+                        <span className={task.completed ? "done" : ""}>{task.title}</span>
+                        <div className="task-meta">
+                          <span
+                            className={`task-priority task-priority--${task.priority}`}
+                          >
+                            {priorityLabel(task.priority)}
+                          </span>
+                          {task.due_date && (
+                            <span
+                              className={`task-due${
+                                isTaskOverdue(task) ? " task-due--overdue" : ""
+                              }`}
+                            >
+                              {formatDueDate(task.due_date)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </label>
                   </>
                 )}
@@ -539,18 +572,16 @@ export default function TaskListPage() {
                           </option>
                         ))}
                       </select>
-                      {showSubtasks && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedTaskId(
-                              expandedTaskId === task.id ? null : task.id,
-                            )
-                          }
-                        >
-                          {expandedTaskId === task.id ? "Hide" : "Subtasks"}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedTaskId(
+                            expandedTaskId === task.id ? null : task.id,
+                          )
+                        }
+                      >
+                        {expandedTaskId === task.id ? "Hide" : "Details"}
+                      </button>
                       <TaskRowMenu
                         isOpen={openMenuTaskId === task.id}
                         onToggle={() =>
@@ -565,16 +596,14 @@ export default function TaskListPage() {
                     </div>
                   ))}
               </div>
-              {showSubtasks && expandedTaskId === task.id && (
-                <SubtaskList
-                  taskId={task.id}
-                  parentCompleted={task.completed}
-                  onCountChange={(count) => handleSubtaskCountChange(task.id, count)}
+              {expandedTaskId === task.id && (
+                <TaskDetail
+                  task={task}
+                  onSave={(data) => handleSaveDetails(task, data)}
                 />
               )}
             </li>
-            );
-          })}
+          ))}
         </ul>
       </section>
     </div>
