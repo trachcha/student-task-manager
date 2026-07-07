@@ -3,8 +3,9 @@ from fastapi import status
 from tests.conftest import register_and_login
 
 
-def _create_task(client, title: str = "Study SQL") -> dict:
-    response = client.post("/tasks", json={"title": title})
+def _create_task(client, title: str = "Study SQL", **extra) -> dict:
+    payload = {"title": title, **extra}
+    response = client.post("/tasks", json=payload)
     assert response.status_code == status.HTTP_201_CREATED
     return response.json()
 
@@ -24,7 +25,9 @@ def test_create_task(auth_client):
     assert body["id"] == 1
     assert body["title"] == "Study SQL"
     assert body["completed"] is False
-    assert body["subtask_count"] == 0
+    assert body["description"] is None
+    assert body["priority"] == "medium"
+    assert body["due_date"] is None
 
 
 def test_create_task_requires_title(auth_client):
@@ -85,7 +88,13 @@ def test_update_task(auth_client):
 
     response = auth_client.put(
         f"/tasks/{created['id']}",
-        json={"title": "Study SQL well", "completed": True},
+        json={
+            "title": "Study SQL well",
+            "description": None,
+            "priority": "medium",
+            "due_date": None,
+            "completed": True,
+        },
     )
 
     assert response.status_code == status.HTTP_200_OK
@@ -99,7 +108,13 @@ def test_update_task_persists(auth_client):
 
     auth_client.put(
         f"/tasks/{created['id']}",
-        json={"title": "Updated", "completed": True},
+        json={
+            "title": "Updated",
+            "description": None,
+            "priority": "medium",
+            "due_date": None,
+            "completed": True,
+        },
     )
     response = auth_client.get(f"/tasks/{created['id']}")
 
@@ -111,7 +126,13 @@ def test_update_task_persists(auth_client):
 def test_update_task_not_found(auth_client):
     response = auth_client.put(
         "/tasks/999",
-        json={"title": "Nope", "completed": True},
+        json={
+            "title": "Nope",
+            "description": None,
+            "priority": "medium",
+            "due_date": None,
+            "completed": True,
+        },
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -202,13 +223,26 @@ def test_update_task_assigns_and_clears_subject(auth_client):
 
     assigned = auth_client.put(
         f"/tasks/{created['id']}",
-        json={"title": created["title"], "completed": False, "subject_id": subject["id"]},
+        json={
+            "title": created["title"],
+            "description": None,
+            "priority": "medium",
+            "due_date": None,
+            "completed": False,
+            "subject_id": subject["id"],
+        },
     )
     assert assigned.json()["subject_id"] == subject["id"]
 
     cleared = auth_client.put(
         f"/tasks/{created['id']}",
-        json={"title": created["title"], "completed": False},
+        json={
+            "title": created["title"],
+            "description": None,
+            "priority": "medium",
+            "due_date": None,
+            "completed": False,
+        },
     )
     assert cleared.json()["subject_id"] is None
 
@@ -233,6 +267,9 @@ def _complete(client, task: dict) -> None:
         f"/tasks/{task['id']}",
         json={
             "title": task["title"],
+            "description": task.get("description"),
+            "priority": task.get("priority", "medium"),
+            "due_date": task.get("due_date"),
             "completed": True,
             "subject_id": task.get("subject_id"),
         },
@@ -367,3 +404,73 @@ def test_completing_task_moves_it_to_end_of_completed_bucket(auth_client):
     assert [task["title"] for task in active] == ["Second"]
     assert completed[0]["position"] == 0
     assert completed[1]["position"] == 1
+
+
+def test_create_task_with_description_priority_and_due_date(auth_client):
+    response = auth_client.post(
+        "/tasks",
+        json={
+            "title": "Essay draft",
+            "description": "Write the introduction and outline.",
+            "priority": "high",
+            "due_date": "2026-08-15",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    body = response.json()
+    assert body["description"] == "Write the introduction and outline."
+    assert body["priority"] == "high"
+    assert body["due_date"] == "2026-08-15"
+
+
+def test_create_task_defaults_priority_to_medium(auth_client):
+    created = _create_task(auth_client)
+
+    assert created["priority"] == "medium"
+
+
+def test_update_task_description_priority_and_due_date(auth_client):
+    created = _create_task(auth_client)
+
+    response = auth_client.put(
+        f"/tasks/{created['id']}",
+        json={
+            "title": created["title"],
+            "description": "Updated notes",
+            "priority": "low",
+            "due_date": "2026-09-01",
+            "completed": False,
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert body["description"] == "Updated notes"
+    assert body["priority"] == "low"
+    assert body["due_date"] == "2026-09-01"
+
+
+def test_search_tasks_matches_description(auth_client):
+    auth_client.post(
+        "/tasks",
+        json={
+            "title": "Project",
+            "description": "Include citations and bibliography",
+        },
+    )
+    _create_task(auth_client, "Unrelated")
+
+    response = auth_client.get("/tasks?q=bibliography")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [t["title"] for t in response.json()] == ["Project"]
+
+
+def test_create_task_rejects_invalid_priority(auth_client):
+    response = auth_client.post(
+        "/tasks",
+        json={"title": "Bad priority", "priority": "urgent"},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT

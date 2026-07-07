@@ -1,4 +1,12 @@
-import type { Subject, Subtask, Task, TaskFilters, Token, User } from "./types";
+import type {
+  Subject,
+  Task,
+  TaskCreateInput,
+  TaskFilters,
+  TaskUpdateInput,
+  Token,
+  User,
+} from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "student_task_token";
@@ -148,47 +156,15 @@ export const api = {
     });
   },
 
-  createTask(title: string, subjectId: number | null): Promise<Task> {
-    return jsonRequest<Task>("/tasks", "POST", {
-      title,
-      subject_id: subjectId,
-    });
+  createTask(data: TaskCreateInput): Promise<Task> {
+    return jsonRequest<Task>("/tasks", "POST", data);
   },
 
-  updateTask(
-    id: number,
-    data: { title: string; completed: boolean; subject_id: number | null },
-  ): Promise<Task> {
+  updateTask(id: number, data: TaskUpdateInput): Promise<Task> {
     return jsonRequest<Task>(`/tasks/${id}`, "PUT", data);
   },
 
   deleteTask(id: number): Promise<void> {
     return request<void>(`/tasks/${id}`, { method: "DELETE" });
-  },
-
-  listSubtasks(taskId: number): Promise<Subtask[]> {
-    return request<Subtask[]>(`/tasks/${taskId}/subtasks`);
-  },
-
-  createSubtask(taskId: number, title: string): Promise<Subtask> {
-    return jsonRequest<Subtask>(`/tasks/${taskId}/subtasks`, "POST", { title });
-  },
-
-  updateSubtask(
-    taskId: number,
-    subtaskId: number,
-    data: { title: string; completed: boolean },
-  ): Promise<Subtask> {
-    return jsonRequest<Subtask>(
-      `/tasks/${taskId}/subtasks/${subtaskId}`,
-      "PUT",
-      data,
-    );
-  },
-
-  deleteSubtask(taskId: number, subtaskId: number): Promise<void> {
-    return request<void>(`/tasks/${taskId}/subtasks/${subtaskId}`, {
-      method: "DELETE",
-    });
   },
 };

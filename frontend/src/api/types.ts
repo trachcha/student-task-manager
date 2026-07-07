@@ -15,20 +15,34 @@ export interface Subject {
   name: string;
 }
 
+export type TaskPriority = "low" | "medium" | "high";
+
 export interface Task {
   id: number;
   title: string;
+  description: string | null;
+  priority: TaskPriority;
+  due_date: string | null;
   completed: boolean;
   position: number;
   subject_id: number | null;
-  subtask_count: number;
 }
 
-export interface Subtask {
-  id: number;
+export interface TaskCreateInput {
   title: string;
+  subject_id: number | null;
+  description?: string | null;
+  priority?: TaskPriority;
+  due_date?: string | null;
+}
+
+export interface TaskUpdateInput {
+  title: string;
+  description: string | null;
+  priority: TaskPriority;
+  due_date: string | null;
   completed: boolean;
-  task_id: number;
+  subject_id: number | null;
 }
 
 export interface TaskFilters {
